@@ -1,0 +1,82 @@
+/* Variables CSS globales.
+   TODO: reemplazar --color-primario por el hex real del azul corporativo Cimomet.
+   TODO: confirmar si el color de acento (logo "met") es el magenta/rosa que se ve
+         en el tablero de referencia, y reemplazar --color-acento. */
+
+:root {
+  /* Marca (provisorios — reemplazar con hex reales) */
+  --color-primario:          #1a4a7a;   /* azul corporativo — TODO: hex real */
+  --color-primario-hover:    #153d66;
+  --color-primario-claro:    #e8f1fb;   /* fondo activo suave */
+  --color-acento:            #d4156e;   /* magenta/rosa logo — TODO: confirmar hex */
+
+  /* Superficies */
+  --color-fondo:             #f8f9fb;
+  --color-fondo-tarjeta:     #ffffff;
+  --color-sidebar-bg:        #ffffff;
+  --color-sidebar-borde:     #eaecf0;
+
+  /* Texto */
+  --color-texto:             #1a202c;
+  --color-texto-sec:         #4a5568;
+  --color-texto-muted:       #8a96a8;
+
+  /* Bordes */
+  --color-borde:             #e8ecf2;
+
+  /* Sombras */
+  --sombra-xs:  0 1px 2px rgba(0,0,0,0.05);
+  --sombra-s:   0 1px 4px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.04);
+  --sombra-m:   0 4px 14px rgba(0,0,0,0.09), 0 2px 4px rgba(0,0,0,0.05);
+
+  /* Estado */
+  --color-exito:             #27ae60;
+  --color-error:             #c0392b;
+  --color-advertencia:       #e67e22;
+
+  /* Tipografía */
+  --fuente-base:             'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
+  --tamanio-base:            16px;
+
+  /* Layout */
+  --ancho-sidebar:           210px;
+  --radio-s:                 8px;
+  --radio-m:                 12px;
+  --radio-l:                 16px;
+
+  /* Espaciado */
+  --espacio-xs:  4px;
+  --espacio-s:   8px;
+  --espacio-m:   16px;
+  --espacio-l:   24px;
+  --espacio-xl:  40px;
+}
+
+/* ── Reset ────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: var(--tamanio-base); -webkit-text-size-adjust: 100%; }
+body {
+  font-family: var(--fuente-base);
+  color: var(--color-texto);
+  background: var(--color-fondo);
+  line-height: 1.5;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+a   { color: inherit; text-decoration: none; }
+ul  { list-style: none; }
+button { font-family: inherit; }
+
+:focus-visible {
+  outline: 2px solid var(--color-primario);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

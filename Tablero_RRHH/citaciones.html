@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Citaciones — Cimomet / Co.mo.ing</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --cim:#DC2626; --cim-bg:#FEF2F2; --cim-border:#FCA5A5;
+    --com:#2563EB; --com-bg:#EFF6FF; --com-border:#93C5FD;
+    --bg:#F8FAFC; --surface:#FFFFFF; --bg-soft:#F1F5F9;
+    --border:#E2E8F0; --border2:#CBD5E1;
+    --text:#0F172A; --text2:#64748B; --text3:#94A3B8;
+    --green:#16A34A; --green-bg:#F0FDF4; --green-bd:#BBF7D0;
+    --amber:#D97706; --amber-bg:#FFFBEB;
+    --red:#DC2626; --red-bg:#FEF2F2;
+    --radius:8px; --radius-lg:14px;
+    --shadow-sm:0 1px 2px rgba(15,23,42,0.04);
+    --shadow:0 1px 3px rgba(15,23,42,0.08),0 1px 2px rgba(15,23,42,0.04);
+    --shadow-lg:0 10px 30px rgba(15,23,42,0.08);
+  }
+  body { font-family:'Segoe UI',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); font-size:14px; min-height:100vh; padding-bottom:80px; }
+
+  header { background:var(--surface); border-bottom:1px solid var(--border); padding:0 28px; height:64px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:50; box-shadow:var(--shadow-sm); }
+  .brand { display:flex; align-items:center; gap:13px; }
+  .brand-mark { width:38px; height:38px; background:linear-gradient(135deg,#0EA5E9,#2563EB); border-radius:9px; display:flex; align-items:center; justify-content:center; color:#fff; box-shadow:0 2px 8px rgba(37,99,235,0.3); }
+  .brand-name { font-size:16px; font-weight:700; letter-spacing:-0.02em; }
+  .brand-sub { font-size:11.5px; color:var(--text2); margin-top:1px; }
+  .header-actions { display:flex; align-items:center; gap:10px; }
+  .status-pill { display:flex; align-items:center; gap:7px; font-size:12px; font-weight:500; color:var(--text2); background:var(--bg-soft); padding:6px 12px; border-radius:20px; }
+  .status-dot { width:8px; height:8px; border-radius:50%; background:var(--text3); transition:background 0.3s; }
+  .status-dot.ok { background:#22C55E; box-shadow:0 0 0 3px rgba(34,197,94,.15); }
+  .status-dot.error { background:#EF4444; box-shadow:0 0 0 3px rgba(239,68,68,.15); }
+  .status-dot.loading { background:#F59E0B; animation:pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+  .btn { display:inline-flex; align-items:center; gap:6px; padding:9px 16px; border-radius:var(--radius); font-size:13px; font-weight:600; cursor:pointer; border:1px solid var(--border2); background:var(--surface); color:var(--text); transition:all 0.14s; white-space:nowrap; }
+  .btn:hover { background:var(--bg-soft); border-color:var(--text3); }
+  .btn:active { transform:scale(0.97); }
+  .btn:disabled { opacity:.45; cursor:not-allowed; }
+  .btn-primary { background:linear-gradient(135deg,#2563EB,#1D4ED8); color:#fff; border-color:#1D4ED8; box-shadow:0 1px 3px rgba(37,99,235,.3); }
+  .btn-primary:hover { filter:brightness(1.08); background:linear-gradient(135deg,#2563EB,#1D4ED8); }
+  .btn-green { background:var(--green); color:#fff; border-color:var(--green); }
+  .btn-green:hover { background:#15803D; }
+  .btn-ghost { background:transparent; }
+
+  .wrap { padding:24px 28px; max-width:1500px; margin:0 auto; }
+
+  /* SETUP BAR */
+  .setup { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:20px 24px; box-shadow:var(--shadow-sm); margin-bottom:20px; }
+  .setup-grid { display:flex; gap:20px; align-items:flex-end; flex-wrap:wrap; }
+  .field { display:flex; flex-direction:column; gap:6px; }
+  .field label { font-size:11px; font-weight:700; color:var(--text2); text-transform:uppercase; letter-spacing:0.05em; }
+  .field input, .field select { padding:9px 12px; border:1px solid var(--border2); border-radius:var(--radius); font-size:14px; background:var(--surface); color:var(--text); outline:none; transition:all 0.14s; }
+  .field input:focus, .field select:focus { border-color:var(--com); box-shadow:0 0 0 3px rgba(37,99,235,.12); }
+  .day-label { font-size:13px; font-weight:600; color:var(--com); padding:9px 0; }
+
+  /* COUNTERS */
+  .counters { display:flex; gap:12px; margin-left:auto; }
+  .counter { text-align:center; padding:8px 18px; background:var(--bg-soft); border-radius:var(--radius); border:1px solid var(--border); }
+  .counter-val { font-size:22px; font-weight:800; line-height:1; }
+  .counter-label { font-size:10px; font-weight:600; color:var(--text2); text-transform:uppercase; letter-spacing:0.04em; margin-top:3px; }
+  .counter.citados .counter-val { color:var(--com); }
+  .counter.manana .counter-val { color:var(--amber); }
+  .counter.tarde .counter-val { color:#7C3AED; }
+
+  /* TOOLBAR */
+  .toolbar { display:flex; gap:10px; align-items:center; margin-bottom:14px; flex-wrap:wrap; }
+  .search-wrap { position:relative; flex:1; min-width:220px; }
+  .search-wrap svg { position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--text3); pointer-events:none; }
+  .search-wrap input { width:100%; padding:10px 12px 10px 38px; border:1px solid var(--border2); border-radius:var(--radius); font-size:13.5px; background:var(--surface); outline:none; }
+  .search-wrap input:focus { border-color:var(--com); box-shadow:0 0 0 3px rgba(37,99,235,.12); }
+  select.filter { padding:10px 12px; border:1px solid var(--border2); border-radius:var(--radius); font-size:13.5px; background:var(--surface); cursor:pointer; outline:none; }
+  .chip-toggle { display:flex; gap:0; border:1px solid var(--border2); border-radius:var(--radius); overflow:hidden; }
+  .chip-toggle button { padding:9px 14px; border:none; background:var(--surface); font-size:12.5px; font-weight:600; cursor:pointer; color:var(--text2); }
+  .chip-toggle button.active { background:var(--com); color:#fff; }
+
+  /* TABLE */
+  .table-container { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); overflow:hidden; box-shadow:var(--shadow); }
+  table { width:100%; border-collapse:collapse; }
+  thead th { background:var(--bg-soft); padding:12px 14px; text-align:left; font-size:11px; font-weight:700; color:var(--text2); text-transform:uppercase; letter-spacing:0.05em; border-bottom:1px solid var(--border); white-space:nowrap; }
+  thead th.center { text-align:center; }
+  tbody td { padding:10px 14px; border-bottom:1px solid #F1F5F9; vertical-align:middle; }
+  tbody td.center { text-align:center; }
+  tbody tr:last-child td { border-bottom:none; }
+  tbody tr.cited { background:#F0F7FF; }
+  tbody tr:hover td { background:#FAFCFE; }
+  tbody tr.cited:hover td { background:#E7F1FF; }
+
+  .badge { display:inline-flex; align-items:center; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700; }
+  .badge-cim { background:var(--cim-bg); color:var(--cim); border:1px solid var(--cim-border); }
+  .badge-com { background:var(--com-bg); color:var(--com); border:1px solid var(--com-border); }
+  .badge-puesto { background:var(--bg-soft); color:#475569; border:1px solid var(--border); font-weight:600; }
+  .legajo-num { display:inline-block; font-family:'Consolas',monospace; font-size:12px; font-weight:700; color:var(--text2); background:var(--bg-soft); padding:2px 8px; border-radius:6px; }
+  .nombre-main { font-weight:600; }
+
+  /* checkboxes */
+  .chk { width:20px; height:20px; cursor:pointer; accent-color:var(--com); }
+  .inp-cell { width:100%; padding:6px 8px; border:1px solid var(--border); border-radius:6px; font-size:13px; outline:none; background:var(--surface); }
+  .inp-cell:focus { border-color:var(--com); box-shadow:0 0 0 2px rgba(37,99,235,.1); }
+  .inp-cell:disabled { background:var(--bg-soft); color:var(--text3); cursor:not-allowed; }
+  .inp-ot { max-width:90px; }
+
+  .cmp-bar { display:flex; align-items:center; gap:8px; }
+  .cmp-track { flex:1; height:6px; background:var(--bg-soft); border-radius:3px; overflow:hidden; min-width:50px; max-width:80px; }
+  .cmp-fill { height:100%; border-radius:3px; }
+  .cmp-pct { font-size:12px; font-weight:700; min-width:36px; }
+
+  /* GROUP HEADERS */
+  tr.group-row td { padding:0; border-bottom:none; }
+  .group-head { display:flex; align-items:center; gap:10px; padding:12px 14px; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; }
+  .group-head.quincenal { background:linear-gradient(90deg,#EFF6FF,#F8FAFC); color:var(--com); border-top:2px solid var(--com); }
+  .group-head.mensual { background:linear-gradient(90deg,#FEF2F2,#F8FAFC); color:var(--cim); border-top:2px solid var(--cim); }
+  .group-head .g-count { font-size:11px; font-weight:700; color:var(--text2); background:var(--surface); padding:2px 9px; border-radius:20px; border:1px solid var(--border); }
+  .group-head .g-cited { font-size:11px; font-weight:700; color:var(--green); }
+
+  .counter.quincenal .counter-val { color:var(--com); }
+  .counter.mensual .counter-val { color:var(--cim); }
+
+  /* DIAGNOSTIC PANEL */
+  .diag { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); margin-bottom:14px; box-shadow:var(--shadow-sm); overflow:hidden; }
+  .diag-head { display:flex; align-items:center; gap:10px; padding:12px 18px; cursor:pointer; user-select:none; font-size:13px; font-weight:700; color:var(--text); }
+  .diag-head:hover { background:var(--bg-soft); }
+  .diag-head .chev { margin-left:auto; transition:transform 0.2s; color:var(--text3); }
+  .diag-head.open .chev { transform:rotate(180deg); }
+  .diag-body { padding:0 18px 18px; display:none; }
+  .diag-body.open { display:block; }
+  .diag-cols { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:16px; }
+  .diag-col h4 { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid var(--border); }
+  .diag-col.q h4 { color:var(--com); }
+  .diag-col.m h4 { color:var(--cim); }
+  .diag-col.x h4 { color:var(--amber); }
+  .diag-col ul { list-style:none; }
+  .diag-col li { font-size:12.5px; padding:4px 0; color:var(--text); display:flex; justify-content:space-between; gap:8px; border-bottom:1px solid #F1F5F9; }
+  .diag-col li span.n { color:var(--text3); font-family:'Consolas',monospace; font-size:11px; }
+
+  /* STATE */
+  .state-row td { text-align:center; padding:56px 24px; color:var(--text2); }
+  .state-row svg { display:block; margin:0 auto 14px; opacity:.2; }
+
+  /* TOAST */
+  .toast { position:fixed; bottom:80px; left:50%; transform:translateX(-50%) translateY(10px); background:var(--text); color:#fff; padding:12px 22px; border-radius:10px; font-size:13px; font-weight:600; opacity:0; transition:all 0.25s; pointer-events:none; z-index:300; white-space:nowrap; box-shadow:var(--shadow-lg); }
+  .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  .toast.error { background:var(--red); }
+  .toast.ok { background:var(--green); }
+
+  /* FOOTER ACTION BAR */
+  .action-bar { position:fixed; bottom:0; left:0; right:0; background:var(--surface); border-top:1px solid var(--border); padding:14px 28px; display:flex; align-items:center; gap:14px; z-index:40; box-shadow:0 -2px 10px rgba(15,23,42,0.04); }
+  .action-info { font-size:13px; color:var(--text2); }
+  .action-info b { color:var(--text); }
+  .action-spacer { margin-left:auto; }
+
+  @media (max-width:900px) {
+    .counters { margin-left:0; width:100%; }
+    .wrap { padding:16px; }
+    header { padding:0 16px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="brand-mark">
+      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+    </div>
+    <div>
+      <div class="brand-name">Citaciones — Sábados y Feriados</div>
+      <div class="brand-sub">Cimomet S.A. &amp; Co.mo.ing S.R.L.</div>
+    </div>
+  </div>
+  <div class="header-actions">
+    <div class="status-pill"><div class="status-dot loading" id="dot"></div><span id="status-txt">Conectando…</span></div>
+    <a href="#" class="btn btn-ghost" onclick="location.reload();return false;">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+      Recargar
+    </a>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- SETUP -->
+  <div class="setup">
+    <div class="setup-grid">
+      <div class="field">
+        <label>Fecha del operativo</label>
+        <input type="date" id="f-fecha" onchange="onFechaChange()">
+      </div>
+      <div class="field">
+        <label>Tipo</label>
+        <select id="f-tipo">
+          <option value="Sabado">Sábado</option>
+          <option value="Domingo">Domingo</option>
+          <option value="Feriado">Feriado</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Día</label>
+        <div class="day-label" id="dia-label">—</div>
+      </div>
+      <div class="counters">
+        <div class="counter citados"><div class="counter-val" id="c-citados">0</div><div class="counter-label">Citados</div></div>
+        <div class="counter quincenal"><div class="counter-val" id="c-quincenal">0</div><div class="counter-label">Quincenal</div></div>
+        <div class="counter mensual"><div class="counter-val" id="c-mensual">0</div><div class="counter-label">Mensual</div></div>
+        <div class="counter manana"><div class="counter-val" id="c-manana">0</div><div class="counter-label">07 a 12</div></div>
+        <div class="counter tarde"><div class="counter-val" id="c-tarde">0</div><div class="counter-label">12 a 16</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOOLBAR -->
+  <div class="toolbar">
+    <div class="search-wrap">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input type="text" id="f-search" placeholder="Buscar persona…" oninput="render()">
+    </div>
+    <select class="filter" id="f-empresa" onchange="render()">
+      <option value="">Ambas empresas</option>
+      <option value="CIMOMET">Cimomet</option>
+      <option value="COMOING">Co.mo.ing</option>
+    </select>
+    <select class="filter" id="f-puesto" onchange="render()"><option value="">Todos los puestos</option></select>
+    <select class="filter" id="f-tipopago" onchange="render()">
+      <option value="">Mensual y quincenal</option>
+      <option value="quincenal">Solo quincenales</option>
+      <option value="mensual">Solo mensuales</option>
+    </select>
+    <div class="chip-toggle">
+      <button id="v-todos" class="active" onclick="setVista('todos')">Todos</button>
+      <button id="v-citados" onclick="setVista('citados')">Solo citados</button>
+    </div>
+  </div>
+
+  <!-- DIAGNOSTIC -->
+  <div class="diag">
+    <div class="diag-head" id="diag-head" onclick="toggleDiag()">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 11H3v10h6V11zM21 3h-6v18h6V3zM15 7H9v14h6V7z"/></svg>
+      Clasificación de puestos (revisá acá qué quedó en cada grupo)
+      <svg class="chev" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+    </div>
+    <div class="diag-body" id="diag-body"></div>
+  </div>
+
+  <!-- TABLE -->
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th class="center" style="width:50px">Citar</th>
+          <th style="width:70px">Legajo</th>
+          <th>Apellido y nombre</th>
+          <th style="width:90px">Empresa</th>
+          <th>Puesto</th>
+          <th class="center" style="width:60px">07-12</th>
+          <th class="center" style="width:60px">12-16</th>
+          <th style="width:100px">Nº OT</th>
+          <th style="width:160px">Trabajo</th>
+          <th style="width:130px">Cumplimiento</th>
+        </tr>
+      </thead>
+      <tbody id="tbody">
+        <tr class="state-row"><td colspan="10">
+          <svg width="38" height="38" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          Cargando personal activo…
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ACTION BAR -->
+<div class="action-bar">
+  <div class="action-info">
+    <span id="estado-cit">Sin guardar</span> · <b id="bar-citados">0</b> personas citadas
+  </div>
+  <div class="action-spacer"></div>
+  <button class="btn" id="btn-limpiar" onclick="limpiarSeleccion()" title="Quitar a todas las personas del listado">
+    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+    Limpiar todo
+  </button>
+  <button class="btn" id="btn-copiar" onclick="copiarUltimaCitacion()">
+    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+    Copiar última
+  </button>
+  <button class="btn" onclick="exportarCSV()">
+    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    Exportar CSV
+  </button>
+  <button class="btn btn-green" id="btn-guardar" onclick="guardarCitacion()">
+    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+    Guardar citación
+  </button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const SB_URL = "https://bmueojeeexheprteavay.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJtdWVvamVlZXhoZXBydGVhdmF5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0MjEyMzQsImV4cCI6MjA5NTk5NzIzNH0.Rh_OGhhnWZwOil1Rp7261QETH9kFgSvylZVJS35e7-o";
+const H = { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY, "Content-Type": "application/json" };
+
+let empleados = [];      // personal activo
+let cumplimiento = {};   // { "legajo|empresa": {pct, presente, convocado} }
+let seleccion = {};      // { "legajo|empresa": {manana, tarde, ot, trabajo} }
+let vista = "todos";
+let citacionExistenteId = null;
+
+const DIAS = ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+
+function key(e){ return e.legajo + "|" + e.empresa; }
+
+// ── Clasificación mensual / quincenal ──────────────────────────────
+// Las áreas MENSUALES se detectan por coincidencia de palabras clave
+// sobre desc_puesto. Si un puesto no coincide con ninguna, se trata
+// como QUINCENAL por defecto (revisá el panel de diagnóstico).
+// Para forzar un puesto exacto a mensual, agregalo a PUESTOS_MENSUALES_EXACTOS.
+const MENSUAL_KEYWORDS = [
+  "calidad",
+  "ingenieria",
+  "administracion", "administrativ",
+  "resp. ed produccion", "responsable de produccion", "resp de produccion", "resp. de produccion",
+  "rrhh", "recursos humanos",
+  "coordinacion de produccion", "coordinador de produccion",
+  "recepcion y despacho", "recepcion", "despacho",
+  "presupuesto",
+  "seguridad e higiene", "higiene"
+];
+// Coincidencias exactas (en minúscula, sin acentos) que SIEMPRE son mensuales.
+const PUESTOS_MENSUALES_EXACTOS = [];
+
+function esMensual(descPuesto) {
+  const p = norm(descPuesto);
+  if (!p) return false; // sin puesto → quincenal por defecto
+  if (PUESTOS_MENSUALES_EXACTOS.includes(p)) return true;
+  return MENSUAL_KEYWORDS.some(kw => p.includes(kw));
+}
+function tipoPago(e){ return esMensual(e.desc_puesto) ? "mensual" : "quincenal"; }
+
+// Los puestos de GERENCIA se excluyen por completo (no aparecen en la tabla,
+// contadores ni CSV). Se detecta por coincidencia sobre desc_puesto.
+function esGerencia(descPuesto) {
+  const p = norm(descPuesto);
+  return p.includes("gerencia") || p.includes("gerente");
+}
+
+async function init() {
+  // fecha por defecto: proximo sabado
+  const hoy = new Date();
+  const diasHastaSabado = (6 - hoy.getDay() + 7) % 7 || 7;
+  const prox = new Date(hoy); prox.setDate(hoy.getDate() + diasHastaSabado);
+  document.getElementById("f-fecha").value = prox.toISOString().split("T")[0];
+  onFechaChange();
+
+  try {
+    setStatus("loading","Cargando…");
+    // 1. Personal activo
+    const r1 = await fetch(SB_URL + "/rest/v1/empleados?select=legajo,empresa,apellido_y_nombre,desc_puesto&activo=eq.true&order=apellido_y_nombre.asc&limit=2000", {headers:H});
+    empleados = await r1.json();
+    // excluir gerencia por completo
+    empleados = empleados.filter(e => !esGerencia(e.desc_puesto));
+
+    // 2. Cumplimiento historico
+    const r2 = await fetch(SB_URL + "/rest/v1/v_cumplimiento_persona?select=*", {headers:H});
+    if (r2.ok) {
+      const cmp = await r2.json();
+      cmp.forEach(c => cumplimiento[c.legajo+"|"+c.empresa] = c);
+    }
+
+    poblarPuestos();
+    setStatus("ok","Conectado · " + empleados.length + " activos");
+    await cargarCitacionDeFecha();
+    render();
+  } catch(e) {
+    setStatus("error","Error: " + e.message);
+    showToast("Error al conectar","error");
+  }
+}
+
+function setStatus(s,t){ document.getElementById("dot").className="status-dot "+s; document.getElementById("status-txt").textContent=t; }
+
+function onFechaChange() {
+  const v = document.getElementById("f-fecha").value;
+  if (!v) { document.getElementById("dia-label").textContent="—"; return; }
+  const d = new Date(v + "T00:00:00");
+  const diaIdx = d.getDay();
+  document.getElementById("dia-label").textContent = DIAS[diaIdx];
+  // autoseleccionar tipo segun dia
+  const tipoSel = document.getElementById("f-tipo");
+  if (diaIdx === 6) tipoSel.value = "Sabado";
+  else if (diaIdx === 0) tipoSel.value = "Domingo";
+  else tipoSel.value = "Feriado";
+  if (empleados.length) cargarCitacionDeFecha().then(render);
+}
+
+async function cargarCitacionDeFecha() {
+  seleccion = {};
+  citacionExistenteId = null;
+  const fecha = document.getElementById("f-fecha").value;
+  if (!fecha) return;
+  try {
+    const r = await fetch(SB_URL + "/rest/v1/citaciones?select=id,estado&fecha=eq."+fecha, {headers:H});
+    const cits = await r.json();
+    if (cits.length) {
+      citacionExistenteId = cits[0].id;
+      const rd = await fetch(SB_URL + "/rest/v1/citacion_detalle?select=*&citacion_id=eq."+citacionExistenteId, {headers:H});
+      const det = await rd.json();
+      det.forEach(d => {
+        seleccion[d.legajo+"|"+d.empresa] = { manana:d.turno_manana, tarde:d.turno_tarde, ot:d.ot||"", trabajo:d.trabajo||"" };
+      });
+      document.getElementById("estado-cit").textContent = "Citación existente (" + det.length + " personas) — editando";
+    } else {
+      document.getElementById("estado-cit").textContent = "Nueva citación";
+    }
+  } catch(e){ /* silencioso */ }
+}
+
+function poblarPuestos() {
+  const puestos = [...new Set(empleados.map(e=>e.desc_puesto).filter(Boolean))].sort();
+  const sel = document.getElementById("f-puesto");
+  sel.innerHTML = '<option value="">Todos los puestos</option>';
+  puestos.forEach(p => { const o=document.createElement("option"); o.value=p; o.textContent=p; sel.appendChild(o); });
+}
+
+function norm(s){ return (s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""); }
+
+function render() {
+  const txt = norm(document.getElementById("f-search").value);
+  const emp = document.getElementById("f-empresa").value;
+  const pue = document.getElementById("f-puesto").value;
+  const tp  = document.getElementById("f-tipopago").value;
+
+  let lista = empleados.filter(e => {
+    if (emp && e.empresa !== emp) return false;
+    if (pue && e.desc_puesto !== pue) return false;
+    if (txt && !norm(e.apellido_y_nombre).includes(txt)) return false;
+    if (vista === "citados" && !seleccion[key(e)]) return false;
+    if (tp && tipoPago(e) !== tp) return false;
+    return true;
+  });
+
+  const tbody = document.getElementById("tbody");
+  if (!lista.length) {
+    tbody.innerHTML = '<tr class="state-row"><td colspan="10"><svg width="38" height="38" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M21 21l-4.35-4.35M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z"/></svg>Sin resultados</td></tr>';
+    updateCounters(); renderDiag(); return;
+  }
+
+  // separar en quincenales y mensuales
+  const quincenales = lista.filter(e => tipoPago(e) === "quincenal");
+  const mensuales   = lista.filter(e => tipoPago(e) === "mensual");
+
+  let html = "";
+  // primero QUINCENALES, luego MENSUALES
+  if (quincenales.length) html += grupoHeader("quincenal", "Quincenales", quincenales) + quincenales.map(filaEmpleado).join("");
+  if (mensuales.length)   html += grupoHeader("mensual", "Mensuales", mensuales) + mensuales.map(filaEmpleado).join("");
+
+  tbody.innerHTML = html;
+  updateCounters();
+  renderDiag();
+}
+
+function grupoHeader(clase, titulo, arr) {
+  const citados = arr.filter(e => seleccion[key(e)]).length;
+  const citTxt = citados ? `<span class="g-cited">${citados} citado${citados>1?'s':''}</span>` : '';
+  return `<tr class="group-row"><td colspan="10">
+    <div class="group-head ${clase}">${titulo}
+      <span class="g-count">${arr.length}</span>${citTxt}
+    </div></td></tr>`;
+}
+
+function filaEmpleado(e) {
+  const k = key(e);
+  const sel = seleccion[k];
+  const cited = !!sel;
+  const badgeEmp = e.empresa==="CIMOMET" ? '<span class="badge badge-cim">Cimomet</span>' : '<span class="badge badge-com">Co.mo.ing</span>';
+  const cmp = cumplimiento[k];
+  let cmpHtml = '<span style="color:var(--text3);font-size:12px">Sin historial</span>';
+  if (cmp && cmp.convocado > 0) {
+    const pct = Math.round(cmp.pct_cumplimiento);
+    const color = pct>=80?'var(--green)':pct>=60?'var(--amber)':'var(--red)';
+    cmpHtml = `<div class="cmp-bar"><div class="cmp-track"><div class="cmp-fill" style="width:${pct}%;background:${color}"></div></div><span class="cmp-pct" style="color:${color}">${pct}%</span></div>`;
+  }
+  return `<tr class="${cited?'cited':''}">
+    <td class="center"><input type="checkbox" class="chk" ${cited?'checked':''} onchange="toggleCitar('${k}')"></td>
+    <td><span class="legajo-num">${e.legajo}</span></td>
+    <td class="nombre-main">${e.apellido_y_nombre}</td>
+    <td>${badgeEmp}</td>
+    <td><span class="badge badge-puesto">${e.desc_puesto||'—'}</span></td>
+    <td class="center"><input type="checkbox" class="chk" ${sel&&sel.manana?'checked':''} ${cited?'':'disabled'} onchange="setTurno('${k}','manana',this.checked)"></td>
+    <td class="center"><input type="checkbox" class="chk" ${sel&&sel.tarde?'checked':''} ${cited?'':'disabled'} onchange="setTurno('${k}','tarde',this.checked)"></td>
+    <td><input type="text" class="inp-cell inp-ot" value="${sel?sel.ot:''}" ${cited?'':'disabled'} placeholder="OT" onchange="setCampo('${k}','ot',this.value)"></td>
+    <td><input type="text" class="inp-cell" value="${sel?(sel.trabajo||'').replace(/"/g,'&quot;'):''}" ${cited?'':'disabled'} placeholder="Trabajo" onchange="setCampo('${k}','trabajo',this.value)"></td>
+    <td>${cmpHtml}</td>
+  </tr>`;
+}
+
+function toggleCitar(k) {
+  if (seleccion[k]) delete seleccion[k];
+  else seleccion[k] = { manana:true, tarde:false, ot:"", trabajo:"" }; // por defecto manana
+  render();
+}
+function setTurno(k, t, val) { if(seleccion[k]){ seleccion[k][t]=val; updateCounters(); } }
+function setCampo(k, campo, val) { if(seleccion[k]) seleccion[k][campo]=val; }
+
+function setVista(v) {
+  vista = v;
+  document.getElementById("v-todos").classList.toggle("active", v==="todos");
+  document.getElementById("v-citados").classList.toggle("active", v==="citados");
+  render();
+}
+
+function updateCounters() {
+  const citKeys = Object.keys(seleccion);
+  const sels = Object.values(seleccion);
+  const cit = sels.length;
+  const man = sels.filter(s=>s.manana).length;
+  const tar = sels.filter(s=>s.tarde).length;
+  // quincenal / mensual citados
+  let q = 0, m = 0;
+  citKeys.forEach(k => {
+    const e = empleados.find(x => key(x)===k);
+    if (!e) return;
+    if (tipoPago(e) === "mensual") m++; else q++;
+  });
+  document.getElementById("c-citados").textContent = cit;
+  document.getElementById("c-quincenal").textContent = q;
+  document.getElementById("c-mensual").textContent = m;
+  document.getElementById("c-manana").textContent = man;
+  document.getElementById("c-tarde").textContent = tar;
+  document.getElementById("bar-citados").textContent = cit;
+}
+
+function toggleDiag() {
+  document.getElementById("diag-head").classList.toggle("open");
+  document.getElementById("diag-body").classList.toggle("open");
+}
+
+function renderDiag() {
+  const body = document.getElementById("diag-body");
+  if (!body) return;
+  // agrupar puestos UNICOS por tipo, sobre todo el personal activo
+  const puestos = [...new Set(empleados.map(e=>e.desc_puesto).filter(Boolean))].sort();
+  const conteo = {};
+  empleados.forEach(e => { const p=e.desc_puesto||"(sin puesto)"; conteo[p]=(conteo[p]||0)+1; });
+
+  const mensual = [], quincenal = [];
+  puestos.forEach(p => { (esMensual(p) ? mensual : quincenal).push(p); });
+
+  // "sin clasificar" = quincenales que NO matchearon ninguna keyword
+  // (es lo mismo que quincenal, pero lo resaltamos para que revises)
+  const li = (p) => `<li>${p}<span class="n">${conteo[p]||0}</span></li>`;
+
+  body.innerHTML = `
+    <div class="diag-cols">
+      <div class="diag-col q"><h4>Quincenal (${quincenal.length})</h4><ul>${quincenal.map(li).join("")||'<li style="color:var(--text3)">—</li>'}</ul></div>
+      <div class="diag-col m"><h4>Mensual (${mensual.length})</h4><ul>${mensual.map(li).join("")||'<li style="color:var(--text3)">—</li>'}</ul></div>
+    </div>
+  `;
+}
+
+async function guardarCitacion() {
+  const fecha = document.getElementById("f-fecha").value;
+  const tipo  = document.getElementById("f-tipo").value;
+  const dia   = document.getElementById("dia-label").textContent;
+  if (!fecha) { showToast("Elegí una fecha","error"); return; }
+  const sels = Object.keys(seleccion);
+  if (!sels.length) { showToast("No hay nadie citado","error"); return; }
+
+  const btn = document.getElementById("btn-guardar");
+  btn.disabled = true;
+  setStatus("loading","Guardando…");
+
+  try {
+    let citId = citacionExistenteId;
+
+    if (citId) {
+      // borrar detalle anterior para regrabar
+      await fetch(SB_URL + "/rest/v1/citacion_detalle?citacion_id=eq."+citId, {method:"DELETE", headers:{...H,"Prefer":"return=minimal"}});
+      // actualizar cabecera
+      const upd = JSON.stringify({ tipo, dia_semana:dia });
+      await fetch(SB_URL + "/rest/v1/citaciones?id=eq."+citId, {method:"PATCH", headers:{...H,"Prefer":"return=minimal"}, body: new TextEncoder().encode(upd)});
+    } else {
+      // crear cabecera
+      const body = JSON.stringify({ fecha, tipo, dia_semana:dia, estado:"abierta" });
+      const r = await fetch(SB_URL + "/rest/v1/citaciones", {method:"POST", headers:{...H,"Prefer":"return=representation"}, body: new TextEncoder().encode(body)});
+      const created = await r.json();
+      citId = created[0].id;
+      citacionExistenteId = citId;
+    }
+
+    // armar detalle
+    const detalle = sels.map(k => {
+      const e = empleados.find(x => key(x)===k);
+      const s = seleccion[k];
+      return {
+        citacion_id: citId,
+        legajo: e.legajo,
+        empresa: e.empresa,
+        apellido_y_nombre: e.apellido_y_nombre,
+        desc_puesto: e.desc_puesto,
+        turno_manana: !!s.manana,
+        turno_tarde: !!s.tarde,
+        ot: s.ot || null,
+        trabajo: s.trabajo || null,
+        situacion: "Convocado"
+      };
+    });
+
+    const bodyDet = "[" + detalle.map(d=>JSON.stringify(d)).join(",") + "]";
+    const rd = await fetch(SB_URL + "/rest/v1/citacion_detalle", {method:"POST", headers:{...H,"Prefer":"return=minimal"}, body: new TextEncoder().encode(bodyDet)});
+    if (!rd.ok) throw new Error("HTTP " + rd.status);
+
+    setStatus("ok","Guardado");
+    showToast("Citación guardada: " + detalle.length + " personas","ok");
+    document.getElementById("estado-cit").textContent = "Citación guardada (" + detalle.length + " personas)";
+  } catch(e) {
+    setStatus("error","Error al guardar");
+    showToast("Error: " + e.message,"error");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function exportarCSV() {
+  const sels = Object.keys(seleccion);
+  if (!sels.length) { showToast("No hay nadie citado","error"); return; }
+  const fecha = document.getElementById("f-fecha").value;
+  const dia = document.getElementById("dia-label").textContent;
+
+  const rows = [["Personal","Tipo","Horario","Nº OT","Trabajo","Situación"]];
+  // ordenar: quincenales primero, luego mensuales
+  const ordenados = sels.slice().sort((a,b) => {
+    const ea = empleados.find(x=>key(x)===a), eb = empleados.find(x=>key(x)===b);
+    const ta = tipoPago(ea), tb = tipoPago(eb);
+    if (ta !== tb) return ta === "quincenal" ? -1 : 1;
+    return (ea.apellido_y_nombre||"").localeCompare(eb.apellido_y_nombre||"");
+  });
+  ordenados.forEach(k => {
+    const e = empleados.find(x=>key(x)===k);
+    const s = seleccion[k];
+    let horario = "";
+    if (s.manana && s.tarde) horario = "Ambos";
+    else if (s.manana) horario = "07 a 12";
+    else if (s.tarde) horario = "12 a 16";
+    const tipo = tipoPago(e) === "mensual" ? "Mensual" : "Quincenal";
+    rows.push([e.apellido_y_nombre, tipo, horario, s.ot||"", s.trabajo||"", "Convocado"]);
+  });
+
+  const csv = rows.map(r => r.map(c => `"${(c||"").toString().replace(/"/g,'""')}"`).join(";")).join("\n");
+  const blob = new Blob(["\ufeff"+csv], {type:"text/csv;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `Informe (${dia} ${fecha}).csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast("CSV descargado","ok");
+}
+
+function showToast(msg, tipo="") {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className = "toast show " + tipo;
+  setTimeout(()=> t.className="toast", 3000);
+}
+
+function limpiarSeleccion() {
+  if (!Object.keys(seleccion).length) { showToast("El listado ya está vacío", ""); return; }
+  if (!confirm("¿Quitar a todas las personas del listado? Se perderán los cambios no guardados.")) return;
+  seleccion = {};
+  render();
+  showToast("Listado limpiado", "");
+}
+
+function fmtFecha(f) {
+  const [y, m, d] = f.split("-");
+  const MESES = ["","ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+  return `${+d} ${MESES[+m]} ${y}`;
+}
+
+async function copiarUltimaCitacion() {
+  const fechaActual = document.getElementById("f-fecha").value;
+  const btn = document.getElementById("btn-copiar");
+  btn.disabled = true;
+
+  try {
+    // Traer las últimas 5 citaciones ordenadas por fecha descendente
+    const r = await fetch(
+      SB_URL + "/rest/v1/citaciones?select=id,fecha,tipo&order=fecha.desc&limit=5",
+      { headers: H }
+    );
+    const cits = await r.json();
+
+    // La más reciente que NO sea la fecha que se está editando ahora
+    const anterior = cits.find(c => c.fecha !== fechaActual);
+    if (!anterior) {
+      showToast("No hay citaciones anteriores guardadas", "error");
+      return;
+    }
+
+    const haySeleccion = Object.keys(seleccion).length > 0;
+    const msg = `¿Cargar la citación del ${fmtFecha(anterior.fecha)}${anterior.tipo ? " (" + anterior.tipo + ")" : ""}?\n${haySeleccion ? "⚠ Se reemplazará la selección actual." : ""}`;
+    if (!confirm(msg)) return;
+
+    const rd = await fetch(
+      SB_URL + "/rest/v1/citacion_detalle?select=legajo,empresa,turno_manana,turno_tarde&citacion_id=eq." + anterior.id,
+      { headers: H }
+    );
+    const det = await rd.json();
+
+    if (!det.length) {
+      showToast("Esa citación no tiene personas guardadas", "error");
+      return;
+    }
+
+    // Cargar en seleccion: turnos conservados, OT y trabajo en blanco (son específicos de cada fecha)
+    seleccion = {};
+    let cargados = 0;
+    det.forEach(d => {
+      const k = d.legajo + "|" + d.empresa;
+      // Solo incluir si el empleado sigue activo en la lista actual
+      if (empleados.find(e => key(e) === k)) {
+        seleccion[k] = { manana: d.turno_manana, tarde: d.turno_tarde, ot: "", trabajo: "" };
+        cargados++;
+      }
+    });
+
+    render();
+    const omitidos = det.length - cargados;
+    let msg2 = `${cargados} personas cargadas desde ${fmtFecha(anterior.fecha)}`;
+    if (omitidos) msg2 += ` · ${omitidos} ya no están activos`;
+    showToast(msg2, "ok");
+    document.getElementById("estado-cit").textContent = "Copiada de " + fmtFecha(anterior.fecha) + " — sin guardar";
+  } catch(e) {
+    showToast("Error al copiar: " + e.message, "error");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+init();
+</script>
+</body>
+</html>
