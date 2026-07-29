@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Tablero de Recursos Humanos — Cimomet S.A. / Co.mo.ing S.R.L.">
+  <title>RRHH — Cimomet</title>
+
+  <link rel="stylesheet" href="estilos/base.css">
+  <link rel="stylesheet" href="estilos/componentes.css">
+
+  <!-- Chart.js vía CDN (sin npm ni build step) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+  <!-- SheetJS para exportar Excel -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+
+  <div class="app-layout">
+
+    <!-- Sidebar de contexto/marca -->
+    <nav id="nav-lateral" class="nav-lateral" role="navigation" aria-label="Módulo activo">
+      <!-- Montado por components/nav-lateral.js -->
+    </nav>
+
+    <!-- Overlay para cerrar sidebar en mobile -->
+    <div id="nav-overlay" class="nav-overlay" aria-hidden="true"></div>
+
+    <div class="app-main">
+
+      <!-- Top bar solo en mobile -->
+      <div class="app-topbar" aria-hidden="true">
+        <button id="btn-hamburger" class="btn-hamburger" aria-label="Abrir menú" aria-controls="nav-lateral" aria-expanded="false">
+          <span></span><span></span><span></span>
+        </button>
+        <span class="app-topbar__titulo">Recursos Humanos</span>
+      </div>
+
+      <!-- Header con breadcrumb, título y tabs -->
+      <header id="header" role="banner">
+        <!-- Montado por components/header.js -->
+      </header>
+
+      <!-- Área de contenido (Panel o sección de botones) -->
+      <main class="app-contenido" role="main">
+        <div id="contenido-principal">
+          <!-- Montado por app.js según el tab activo -->
+        </div>
+      </main>
+
+    </div>
+  </div>
+
+  <!-- type="module" requiere HTTP — no abrir con doble clic (file://) -->
+  <script type="module" src="app.js"></script>
+
+</body>
+</html>
