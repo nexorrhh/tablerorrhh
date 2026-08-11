@@ -1,0 +1,233 @@
+
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+<h2 class="sr-only">Horas trabajadas por OT de enero a julio 2026 (julio parcial). Nivel 1: total mensual. Nivel 2: desglose por OT. Nivel 3: desglose por tarea dentro de cada OT.</h2>
+
+<style>
+*{font-family:'Lato',sans-serif;box-sizing:border-box;}
+.pf{font-family:'Playfair Display',Georgia,serif;}
+.kpi{background:var(--surface-1);border-radius:8px;padding:10px 14px;text-align:center;}
+.kpi-l{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px;}
+.kpi-v{font-size:20px;font-weight:500;color:var(--text-primary);}
+.kpi-s{font-size:10px;color:var(--text-muted);}
+.btn-m{background:var(--surface-1);border:0.5px solid var(--border);border-radius:6px;padding:5px 12px;font-size:12px;cursor:pointer;color:var(--text-secondary);transition:all .15s;}
+.btn-m.active{background:#185FA5;color:#fff;border-color:#185FA5;}
+.btn-m:hover:not(.active){border-color:var(--border-strong);}
+.row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:5px 10px;padding:7px 6px;border-bottom:0.5px solid var(--border);cursor:pointer;border-radius:4px;transition:background .1s;}
+.row:last-child{border-bottom:none;}
+.row:hover{background:var(--surface-1);}
+.row.nocursor{cursor:default;}
+.row.nocursor:hover{background:none;}
+.btrack{background:var(--surface-1);border-radius:3px;height:4px;overflow:hidden;margin-top:4px;}
+.bfill{height:100%;border-radius:3px;}
+.pill{display:inline-block;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:400;}
+.pill.ot{background:#E6F1FB;color:#0C447C;}
+.pill.sin{background:#FAEEDA;color:#633806;}
+.crumb{font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:5px;margin-bottom:10px;flex-wrap:wrap;}
+.crumb .active{color:var(--text-primary);font-weight:500;}
+.crumb .link{color:#185FA5;cursor:pointer;text-decoration:underline;text-decoration-color:#b5d4f4;}
+.sec-hdr{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;font-weight:300;}
+</style>
+
+<div style="padding:1.25rem 0.25rem 1rem;">
+
+  <div style="border-left:3px solid #185FA5;padding-left:13px;margin-bottom:16px;border-radius:0;">
+    <div class="pf" style="font-size:18px;font-weight:500;color:var(--text-primary);">Horas por OT</div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:2px;text-transform:uppercase;letter-spacing:.04em;">CIMOMET S.A. · Enero – Julio 2026</div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px;" id="kpis"></div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;" id="btnMeses"></div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:12px;">
+    <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-secondary);"><span style="width:10px;height:10px;border-radius:2px;background:#185FA5;display:inline-block;"></span>Con OT asignada</span>
+    <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-secondary);"><span style="width:10px;height:10px;border-radius:2px;background:#E07B39;display:inline-block;"></span>Sin OT</span>
+    <span style="font-size:11px;color:var(--text-muted);margin-left:auto;">clic en barra para ver desglose por OT</span>
+  </div>
+
+  <div style="position:relative;width:80%;height:210px;margin:0 auto 20px;">
+    <canvas id="mc" role="img" aria-label="Barras apiladas de horas con y sin OT por mes, enero a julio 2026.">Ene 12166, Feb 10304, Mar 12600, Abr 11516, May 10873, Jun 11738, Jul 9175.</canvas>
+  </div>
+
+  <div style="border-top:0.5px solid var(--border);padding-top:14px;" id="panel"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const DATA={"Enero":{"APOYO Y ARMADO":{"sin_ot":25,"ots":{"550":2579,"561":557.5,"563":463},"total":3936.5},"CAMION IVECO DAILY":{"sin_ot":366,"ots":{},"total":366},"CORTE DE CHAPA":{"sin_ot":20,"ots":{"543":28,"550":125,"561":24,"563":8},"total":205},"CORTE GENERAL":{"sin_ot":9,"ots":{},"total":9},"FICEP DE PERFILES":{"sin_ot":8,"ots":{},"total":8},"GRANALLA":{"sin_ot":0,"ots":{"543":410,"550":179,"561":43,"563":41.5,"568":41},"total":714.5},"MANTENIMIENTO":{"sin_ot":816,"ots":{},"total":816},"MOVIMIENTO DE MATERIALES":{"sin_ot":79,"ots":{"543":433,"550":276,"561":30,"563":46.5,"568":35},"total":899.5},"ORDEN Y LIMPIEZA":{"sin_ot":397,"ots":{},"total":397},"PAÑOL":{"sin_ot":391.5,"ots":{},"total":391.5},"PERFORADO":{"sin_ot":0,"ots":{"543":13},"total":13},"PINTURA":{"sin_ot":0,"ots":{"543":415.5,"550":266.5,"561":100},"total":809},"PLANIFICACION MECANIZADO":{"sin_ot":0,"ots":{"543":5,"550":4},"total":9},"SOLDADURA":{"sin_ot":0,"ots":{"543":260,"550":1714,"561":225,"563":441},"total":2640},"STOCK":{"sin_ot":319,"ots":{"543":62,"550":37,"561":10,"563":3},"total":431}},"Febrero":{"APOYO Y ARMADO":{"sin_ot":0,"ots":{"435":5,"540":2,"543":574,"550":1980.5,"561":441,"563":296},"total":3293.5},"CAMION IVECO DAILY":{"sin_ot":283,"ots":{},"total":283},"CORTE DE CHAPA":{"sin_ot":9,"ots":{"543":10,"546":22,"550":90},"total":131},"CORTE GENERAL":{"sin_ot":0,"ots":{"543":9,"546":10,"550":128,"561":10},"total":157},"FICEP DE ANGULOS":{"sin_ot":0,"ots":{"543":46,"546":73,"550":9},"total":128},"FICEP DE PERFILES":{"sin_ot":0,"ots":{"543":46,"546":56,"550":168,"561":6},"total":276},"FICEP DE PLACAS":{"sin_ot":0,"ots":{"543":50,"550":3},"total":53},"GRANALLA":{"sin_ot":0,"ots":{"543":368.5,"550":159,"561":78},"total":605.5},"MANTENIMIENTO":{"sin_ot":532,"ots":{"435":5},"total":537},"MECANIZADOS":{"sin_ot":3,"ots":{"550":51.5,"563":11},"total":65.5},"MOVIMIENTO DE MATERIALES":{"sin_ot":17,"ots":{"543":388,"546":30,"550":280,"561":10,"563":20},"total":745},"ORDEN Y LIMPIEZA":{"sin_ot":223,"ots":{"550":10},"total":233},"PAÑOL":{"sin_ot":316.5,"ots":{},"total":316.5},"PERFORADO":{"sin_ot":0,"ots":{"543":11},"total":11},"PINTURA":{"sin_ot":0,"ots":{"543":311.5,"550":383.5,"561":40,"563":90.5},"total":825.5},"SOLDADURA":{"sin_ot":0,"ots":{"543":226,"550":1470.5,"561":237,"563":354},"total":2287.5},"STOCK":{"sin_ot":308.5,"ots":{"543":31,"550":7},"total":346.5}},"Marzo":{"APOYO Y ARMADO":{"sin_ot":0,"ots":{"543":190,"546":1636.5,"550":2935,"561":143,"563":2,"575":260},"total":5201.5},"CAMION IVECO DAILY":{"sin_ot":376,"ots":{},"total":376},"CORTE GENERAL":{"sin_ot":0,"ots":{"543":38,"546":56,"550":128,"561":11,"571":23,"574":2,"575":35},"total":293},"FICEP DE ANGULOS":{"sin_ot":0,"ots":{"543":20,"546":63,"550":9,"575":2},"total":94},"FICEP DE PERFILES":{"sin_ot":0,"ots":{"543":29,"546":113,"550":25,"575":28},"total":195},"FICEP DE PLACAS":{"sin_ot":0,"ots":{"543":16,"550":5,"575":15},"total":36},"GRANALLA":{"sin_ot":0,"ots":{"543":249,"546":26,"550":78,"561":64},"total":417},"MANTENIMIENTO":{"sin_ot":774,"ots":{},"total":774},"MOVIMIENTO DE MATERIALES":{"sin_ot":0,"ots":{"543":512,"546":111,"550":286,"561":54,"568":9},"total":972},"ORDEN Y LIMPIEZA":{"sin_ot":265,"ots":{},"total":265},"PAÑOL":{"sin_ot":236,"ots":{},"total":236},"PINTURA":{"sin_ot":0,"ots":{"543":342.75,"546":85,"550":199,"561":75},"total":701.75},"SOLDADURA":{"sin_ot":0,"ots":{"543":48,"546":769,"550":1642.5,"561":161,"571":39},"total":2659.5},"STOCK":{"sin_ot":334.5,"ots":{},"total":334.5}},"Abril":{"APOYO Y ARMADO":{"sin_ot":0,"ots":{"543":85,"546":961,"550":2911.5,"575":312,"582":93,"584":63},"total":4425.5},"APRENDIZAJE":{"sin_ot":32,"ots":{},"total":32},"CAMION IVECO DAILY":{"sin_ot":335.5,"ots":{},"total":335.5},"CORTE GENERAL":{"sin_ot":0,"ots":{"543":9,"546":10,"550":128,"561":11,"571":23,"574":2,"575":35},"total":218},"FICEP DE ANGULOS":{"sin_ot":0,"ots":{"543":20,"546":63,"550":9,"575":2},"total":94},"FICEP DE PERFILES":{"sin_ot":0,"ots":{"543":18,"546":10,"550":83},"total":111},"GRANALLA":{"sin_ot":4,"ots":{"543":85,"546":189,"550":121,"575":42},"total":441},"MANTENIMIENTO":{"sin_ot":943,"ots":{},"total":943},"MOVIMIENTO DE MATERIALES":{"sin_ot":6,"ots":{"543":146,"546":215,"550":198,"571":17,"575":86,"582":0,"583":0},"total":668},"ORDEN Y LIMPIEZA":{"sin_ot":225,"ots":{"550":5},"total":230},"PAÑOL":{"sin_ot":211,"ots":{},"total":211},"PINTURA":{"sin_ot":7,"ots":{"543":102,"546":264,"550":265,"575":68},"total":706},"SOLDADURA":{"sin_ot":0,"ots":{"543":23,"546":761.5,"550":1356,"571":204.5,"575":169,"582":5},"total":2519},"STOCK":{"sin_ot":394,"ots":{},"total":394}},"Mayo":{"APOYO Y ARMADO":{"sin_ot":0,"ots":{"546":381,"550":3993.2,"571":35},"total":4409.2},"APRENDIZAJE":{"sin_ot":5,"ots":{},"total":5},"CAMION IVECO DAILY":{"sin_ot":282,"ots":{},"total":282},"CORTE GENERAL":{"sin_ot":0,"ots":{"550":33},"total":33},"FICEP DE PERFILES":{"sin_ot":0,"ots":{"546":4},"total":4},"FICEP DE PLACAS":{"sin_ot":0,"ots":{"550":19},"total":19},"GRANALLA":{"sin_ot":0,"ots":{"543":76,"546":75,"550":195,"575":42},"total":388},"MANTENIMIENTO":{"sin_ot":1054,"ots":{},"total":1054},"MOVIMIENTO DE MATERIALES":{"sin_ot":21.5,"ots":{"543":158.5,"546":166,"550":122},"total":468},"ORDEN Y LIMPIEZA":{"sin_ot":370.75,"ots":{"550":10},"total":380.75},"PANTOGRAFO":{"sin_ot":9,"ots":{"546":11,"550":34},"total":54},"PAÑOL":{"sin_ot":206,"ots":{},"total":206},"PINTURA":{"sin_ot":35.5,"ots":{"543":147,"546":216.5,"550":373,"571":7.5},"total":779.5},"SOLDADURA":{"sin_ot":10,"ots":{"546":164,"550":2393.5},"total":2567.5},"STOCK":{"sin_ot":259.5,"ots":{},"total":259.5}},"Junio":{"APOYO Y ARMADO":{"sin_ot":0,"ots":{"543":85,"546":129,"550":4177.8,"582":93,"584":63},"total":4462.8},"CAMION IVECO DAILY":{"sin_ot":234.3,"ots":{},"total":234.3},"CORTE GENERAL":{"sin_ot":28,"ots":{"550":176.5,"582":20,"584":14},"total":238.5},"FICEP DE ANGULOS":{"sin_ot":0,"ots":{"550":3,"584":1},"total":4},"FICEP DE PERFILES":{"sin_ot":0,"ots":{"546":14,"584":44},"total":58},"FICEP DE PLACAS":{"sin_ot":0,"ots":{"584":31},"total":31},"GRANALLA":{"sin_ot":0,"ots":{"543":76,"546":75,"550":195,"575":42},"total":357},"MANTENIMIENTO":{"sin_ot":966.5,"ots":{},"total":966.5},"MOVIMIENTO DE MATERIALES":{"sin_ot":13,"ots":{"546":17,"550":276.5,"582":33,"583":3,"584":51},"total":393.5},"ORDEN Y LIMPIEZA":{"sin_ot":671,"ots":{"550":16},"total":687},"PANTOGRAFO":{"sin_ot":0,"ots":{"546":11,"582":18,"584":33},"total":62},"PAÑOL":{"sin_ot":232,"ots":{},"total":232},"PERFORADO":{"sin_ot":0,"ots":{"550":10,"582":4},"total":14},"PINTURA":{"sin_ot":0,"ots":{"550":417,"563":39.5},"total":456.5},"SIN OPERACION":{"sin_ot":91,"ots":{"582":22},"total":113},"SOLDADURA":{"sin_ot":0,"ots":{"546":94,"550":2685.8,"582":15,"584":10},"total":2804.8},"STOCK":{"sin_ot":604.5,"ots":{},"total":604.5}},"Julio":{"APOYO Y ARMADO":{"sin_ot":0,"ots":{"546":14.0,"550":917.5,"563":18.0,"582":721.45,"584":1214.5,"592":84.0},"total":2969.45},"APRENDIZAJE":{"sin_ot":30.0,"ots":{},"total":30.0},"CAMION IVECO DAILY":{"sin_ot":224.0,"ots":{},"total":224.0},"CORTE GENERAL":{"sin_ot":0,"ots":{"582":140.0,"584":43.0,"592":38.0},"total":221.0},"FICEP DE ANGULOS":{"sin_ot":0,"ots":{"582":14.0,"584":36.7,"592":13.0},"total":63.7},"FICEP DE PERFILES":{"sin_ot":0,"ots":{"546":3.0,"584":23.0,"592":1.0,"595":9.0},"total":36.0},"FICEP DE PLACAS":{"sin_ot":0,"ots":{"582":29.0,"584":62.0},"total":91.0},"GRANALLA":{"sin_ot":0,"ots":{"546":27.0,"550":124.0,"563":25.0,"584":123.0},"total":299.0},"MANTENIMIENTO":{"sin_ot":583.0,"ots":{"582":28.0},"total":611.0},"MECANIZADOS":{"sin_ot":0,"ots":{"582":20.0,"592":9.0},"total":29.0},"MOVIMIENTO DE MATERIALES":{"sin_ot":0,"ots":{"546":20.0,"550":215.0,"563":13.0,"582":119.0,"584":178.0,"592":26.0,"595":18.0},"total":589.0},"ORDEN Y LIMPIEZA":{"sin_ot":150.0,"ots":{},"total":150.0},"PANTOGRAFO":{"sin_ot":0,"ots":{"546":2.0,"582":106.0,"584":38.0,"592":22.0},"total":168.0},"PAÑOL":{"sin_ot":173.0,"ots":{},"total":173.0},"PERFORADO":{"sin_ot":0,"ots":{"584":15.0,"592":10.0},"total":25.0},"PINTURA":{"sin_ot":0,"ots":{"546":65.0,"550":415.0,"563":66.0,"584":84.0},"total":630.0},"ROLADOS":{"sin_ot":0,"ots":{"582":228.0,"592":28.0},"total":256.0},"SIN OPERACION":{"sin_ot":28.0,"ots":{},"total":28.0},"SOLDADURA":{"sin_ot":0,"ots":{"546":26.0,"550":989.6,"582":244.3,"584":1018.85},"total":2278.75},"STOCK":{"sin_ot":303.5,"ots":{},"total":303.5}}};
+
+const MESES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio'];
+const SIN_OT=[2440.5,1692,1985.5,2157.5,2253.25,2840.3,1491.5];
+const TOTALES=[12166,10304.5,12600.25,11516.5,10873.45,11738.4,9175.4];
+const CON_OT=TOTALES.map((t,i)=>Math.round(t-SIN_OT[i]));
+const C_CON='#185FA5', C_SIN='#E07B39';
+const isDark=matchMedia('(prefers-color-scheme: dark)').matches;
+const gridC=isDark?'#2c2c2a':'#e1e0d9', tickC=isDark?'#898781':'#888780', lblC=isDark?'#b4b2a9':'#52514e';
+let aMes=0, aOT=null;
+
+const fmt=n=>Math.round(n).toLocaleString('es-AR');
+const pct=(a,b)=>Math.round(a/b*100);
+
+function getOTSummary(mes) {
+  const tareas=DATA[mes]||{};
+  const byOT={};
+  let totalSin=0;
+  Object.entries(tareas).forEach(([t,v])=>{
+    totalSin+=v.sin_ot||0;
+    Object.entries(v.ots||{}).forEach(([ot,hs])=>{
+      byOT[ot]=(byOT[ot]||0)+hs;
+    });
+  });
+  return {byOT, totalSin};
+}
+
+document.getElementById('kpis').innerHTML=(()=>{
+  const tot=TOTALES.reduce((a,b)=>a+b,0);
+  const sin=SIN_OT.reduce((a,b)=>a+b,0);
+  const con=CON_OT.reduce((a,b)=>a+b,0);
+  const ots=new Set();
+  Object.values(DATA).forEach(m=>Object.values(m).forEach(t=>Object.keys(t.ots||{}).forEach(o=>ots.add(o))));
+  return `<div class="kpi"><div class="kpi-l">Total horas</div><div class="pf kpi-v">${fmt(tot)}</div><div class="kpi-s">Ene–Jul 2026</div></div>
+  <div class="kpi"><div class="kpi-l">Con OT</div><div class="pf kpi-v" style="color:#185FA5">${fmt(con)}</div><div class="kpi-s">${pct(con,tot)}% del total</div></div>
+  <div class="kpi"><div class="kpi-l">Sin OT</div><div class="pf kpi-v" style="color:#E07B39">${fmt(sin)}</div><div class="kpi-s">${pct(sin,tot)}% del total</div></div>
+  <div class="kpi"><div class="kpi-l">OTs activas</div><div class="pf kpi-v">${ots.size}</div><div class="kpi-s">en el período</div></div>`;
+})();
+
+function buildBtns(){
+  document.getElementById('btnMeses').innerHTML=MESES.map((m,i)=>
+    `<button class="btn-m${i===aMes?' active':''}" onclick="selMes(${i})">${m}</button>`
+  ).join('');
+}
+
+const topPlugin={id:'tl',afterDatasetsDraw(chart){
+  const {ctx,data}=chart;
+  ctx.save();
+  ctx.font='300 10px Lato,sans-serif';
+  ctx.textAlign='center';ctx.textBaseline='bottom';
+  chart.getDatasetMeta(1).data.forEach((bar,i)=>{
+    ctx.fillStyle=i===aMes?C_CON:(isDark?'#4a7ab5':'#7aaad6');
+    ctx.fillText(fmt(TOTALES[i]),bar.x,bar.y-3);
+  });
+  ctx.restore();
+}};
+
+function getBg0(i){return i===aMes?C_SIN:(isDark?'#5c3000':'#fce4a8');}
+function getBg1(i){return i===aMes?C_CON:(isDark?'#1e3a5f':'#b5d4f4');}
+
+const chart=new Chart(document.getElementById('mc').getContext('2d'),{
+  type:'bar',plugins:[topPlugin],
+  data:{labels:MESES,datasets:[
+    {label:'Sin OT',data:SIN_OT,backgroundColor:SIN_OT.map((_,i)=>getBg0(i)),borderRadius:0,borderSkipped:'top',stack:'s'},
+    {label:'Con OT',data:CON_OT,backgroundColor:CON_OT.map((_,i)=>getBg1(i)),borderRadius:[3,3,0,0],borderSkipped:'bottom',stack:'s'},
+  ]},
+  options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:24}},
+    plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+fmt(c.parsed.y)+' hs'}}},
+    scales:{
+      x:{stacked:true,ticks:{color:lblC,font:{family:"'Lato',sans-serif",size:11,weight:'300'},autoSkip:false,maxRotation:0},grid:{display:false},border:{color:gridC}},
+      y:{stacked:true,ticks:{color:tickC,font:{size:10},callback:v=>v>=1000?(v/1000).toFixed(0)+'K':v},grid:{color:gridC},border:{display:false}}
+    },
+    onClick:(_,els)=>{if(els.length)selMes(els[0].index);}
+  }
+});
+
+function selMes(i){
+  aMes=i; aOT=null;
+  chart.data.datasets[0].backgroundColor=SIN_OT.map((_,j)=>getBg0(j));
+  chart.data.datasets[1].backgroundColor=CON_OT.map((_,j)=>getBg1(j));
+  chart.update();
+  buildBtns();
+  renderOTs();
+}
+
+function renderOTs(){
+  const mes=MESES[aMes];
+  const {byOT,totalSin}=getOTSummary(mes);
+  const totalMes=TOTALES[aMes];
+  const sorted=Object.entries(byOT).sort((a,b)=>b[1]-a[1]);
+  const maxV=Math.max(totalSin,...sorted.map(e=>e[1]),1);
+
+  document.getElementById('panel').innerHTML=`
+    <div class="crumb"><span class="active">${mes}</span></div>
+    <div class="sec-hdr">Desglose por OT — clic para ver tareas</div>
+    ${totalSin>0?`<div class="row" onclick="renderTareas('__sin__')">
+      <div>
+        <div style="display:flex;align-items:center;gap:7px;">
+          <span class="pill sin">Sin OT</span>
+          <i class="ti ti-chevron-right" aria-hidden="true" style="font-size:10px;color:var(--text-muted);margin-left:auto;"></i>
+        </div>
+        <div class="btrack"><div class="bfill" style="width:${pct(totalSin,maxV)}%;background:${C_SIN};"></div></div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:12px;color:var(--text-secondary);">${fmt(totalSin)} hs</div>
+        <div style="font-size:10px;color:var(--text-muted);">${pct(totalSin,totalMes)}%</div>
+      </div>
+    </div>`:''}
+    ${sorted.map(([ot,hs])=>`<div class="row" onclick="renderTareas('${ot}')">
+      <div>
+        <div style="display:flex;align-items:center;gap:7px;">
+          <span class="pill ot">OT ${ot}</span>
+          <i class="ti ti-chevron-right" aria-hidden="true" style="font-size:10px;color:var(--text-muted);margin-left:auto;"></i>
+        </div>
+        <div class="btrack"><div class="bfill" style="width:${pct(hs,maxV)}%;background:${C_CON};"></div></div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:12px;color:var(--text-secondary);">${fmt(hs)} hs</div>
+        <div style="font-size:10px;color:var(--text-muted);">${pct(hs,totalMes)}%</div>
+      </div>
+    </div>`).join('')}
+    <div style="margin-top:10px;padding-top:8px;border-top:0.5px solid var(--border);display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);">
+      <span>${sorted.length} OTs activas este mes</span>
+      <span style="font-weight:500;color:var(--text-primary);">Total ${fmt(totalMes)} hs</span>
+    </div>`;
+}
+
+function renderTareas(ot){
+  aOT=ot;
+  const mes=MESES[aMes];
+  const tareas=DATA[mes]||{};
+  const isSin=ot==='__sin__';
+  const pill=isSin
+    ?`<span class="pill sin">Sin OT</span>`
+    :`<span class="pill ot">OT ${ot}</span>`;
+
+  const rows=Object.entries(tareas)
+    .map(([t,v])=>{
+      const hs=isSin?(v.sin_ot||0):(v.ots?.[ot]||0);
+      return {t,hs};
+    })
+    .filter(r=>r.hs>0)
+    .sort((a,b)=>b.hs-a.hs);
+
+  const otTotal=rows.reduce((s,r)=>s+r.hs,0);
+  const maxV=rows[0]?.hs||1;
+  const dotColors=['#185FA5','#0F6E56','#854F0B','#4a3aa7','#993C1D','#028090','#3B6D11','#993556','#5F5E5A'];
+
+  document.getElementById('panel').innerHTML=`
+    <div class="crumb">
+      <span class="link" onclick="renderOTs()">${mes}</span>
+      <i class="ti ti-chevron-right" aria-hidden="true" style="font-size:10px;"></i>
+      <span class="active">${isSin?'Sin OT':'OT '+ot}</span>
+    </div>
+    <div class="sec-hdr">Tareas que insumieron horas en ${isSin?'sin OT':'OT '+ot}</div>
+    ${rows.map((r,i)=>`<div class="row nocursor">
+      <div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="width:7px;height:7px;border-radius:50%;background:${dotColors[i%dotColors.length]};flex-shrink:0;display:inline-block;"></span>
+          <span style="font-size:12px;color:var(--text-primary);">${r.t}</span>
+        </div>
+        <div class="btrack"><div class="bfill" style="width:${pct(r.hs,maxV)}%;background:${dotColors[i%dotColors.length]};"></div></div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:12px;color:var(--text-secondary);">${fmt(r.hs)} hs</div>
+        <div style="font-size:10px;color:var(--text-muted);">${pct(r.hs,otTotal)}%</div>
+      </div>
+    </div>`).join('')}
+    <div style="margin-top:10px;padding-top:8px;border-top:0.5px solid var(--border);display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);">
+      <span>${rows.length} tareas</span>
+      <span style="font-weight:500;color:var(--text-primary);">Total ${fmt(otTotal)} hs</span>
+    </div>`;
+}
+
+buildBtns();
+renderOTs();
+</script>
