@@ -286,8 +286,8 @@ export async function renderizarPresentismoFicha(contenedor) {
 
         <div class="pind__kpis pind__kpis--sm">
           <div class="pind__kpi">
-            <span class="pind__kpi-num" id="ficha-kv-trab">${fmtNum(g.totalTrab)}</span>
-            <span class="pind__kpi-lbl">Horas trabajadas</span>
+            <span class="pind__kpi-num" id="ficha-kv-total">${fmtNum(g.totalTrab + g.totalExt50 + g.totalExt100)}</span>
+            <span class="pind__kpi-lbl">Horas trabajadas totales</span>
             <span class="pind__kpi-sub" id="ficha-kv-sub-trab">${labels[0]} – ${labels[labels.length - 1]}</span>
           </div>
           <div class="pind__kpi">
@@ -297,8 +297,26 @@ export async function renderizarPresentismoFicha(contenedor) {
           </div>
           <div class="pind__kpi pind__kpi--dest">
             <span class="pind__kpi-num" id="ficha-kv-cumpl" style="color:${g.colorCumpl}">${g.cumplimiento}%</span>
-            <span class="pind__kpi-lbl">Cumplimiento de horas</span>
-            <span class="pind__kpi-sub">Trabajadas / Esperadas</span>
+            <span class="pind__kpi-lbl">Cumplimiento de horas normales</span>
+            <span class="pind__kpi-sub">Horas normales / Horas esperadas</span>
+          </div>
+        </div>
+
+        <div class="pind__kpis pind__kpis--sm" style="margin-top:8px">
+          <div class="pind__kpi">
+            <span class="pind__kpi-num" id="ficha-kv-trab">${fmtNum(g.totalTrab)}h</span>
+            <span class="pind__kpi-lbl">Horas normales</span>
+            <span class="pind__kpi-sub">Jornada ordinaria</span>
+          </div>
+          <div class="pind__kpi" id="ficha-kv-ext50-wrap">
+            <span class="pind__kpi-num" id="ficha-kv-ext50" style="color:#7c3aed">${fmtNum(g.totalExt50)}h</span>
+            <span class="pind__kpi-lbl">Horas extras 50%</span>
+            <span class="pind__kpi-sub" id="ficha-kv-ext50-sub">En semana: ${fmtNum(g.ext50Semana)}h · Sábados: ${fmtNum(g.ext50Sabado)}h</span>
+          </div>
+          <div class="pind__kpi" id="ficha-kv-ext100-wrap">
+            <span class="pind__kpi-num" id="ficha-kv-ext100" style="color:#dc2626">${fmtNum(g.totalExt100)}h</span>
+            <span class="pind__kpi-lbl">Horas extras 100%</span>
+            <span class="pind__kpi-sub">Liquidadas al 100%</span>
           </div>
         </div>
 
@@ -317,15 +335,6 @@ export async function renderizarPresentismoFicha(contenedor) {
             <span class="pind__kpi-num" id="ficha-kv-pres" style="color:${g.colorPres}">${g.presGlobal}%</span>
             <span class="pind__kpi-lbl">Presentismo (días)</span>
             <span class="pind__kpi-sub">Días presentes / Días lab.</span>
-          </div>
-          <div class="pind__kpi" id="ficha-kv-ext50-wrap"${g.totalExt50 > 0 ? '' : ' hidden'}>
-            <span class="pind__kpi-num" id="ficha-kv-ext50" style="color:#7c3aed">${fmtNum(g.totalExt50)}h</span>
-            <span class="pind__kpi-lbl">Horas extra 50%</span>
-            <span class="pind__kpi-sub" id="ficha-kv-ext50-sub">En semana: ${fmtNum(g.ext50Semana)}h · Sábados: ${fmtNum(g.ext50Sabado)}h</span>
-          </div>
-          <div class="pind__kpi" id="ficha-kv-ext100-wrap"${g.totalExt100 > 0 ? '' : ' hidden'}>
-            <span class="pind__kpi-num" id="ficha-kv-ext100" style="color:#dc2626">${fmtNum(g.totalExt100)}h</span>
-            <span class="pind__kpi-lbl">Horas extra 100%</span>
           </div>
         </div>
 
@@ -360,17 +369,17 @@ export async function renderizarPresentismoFicha(contenedor) {
 
         <div class="pind__graf-grid" style="margin-top:var(--espacio-m)">
           <div class="pind__sec pind__graf-card" style="background:var(--color-fondo)">
-            <h3 class="pind__sec-tit">Horas trabajadas por período</h3>
+            <h3 class="pind__sec-tit">Horas normales por período</h3>
             <div class="pind__graf-wrap"><canvas id="ficha-ch-horas"></canvas></div>
           </div>
           <div class="pind__sec pind__graf-card" style="background:var(--color-fondo)">
-            <h3 class="pind__sec-tit">${tipo === 'mensual' ? 'Esperadas vs. Reales vs. Trabajadas' : 'Esperadas vs. Trabajadas'}</h3>
+            <h3 class="pind__sec-tit">${tipo === 'mensual' ? 'Esperadas vs. Reales vs. Normales' : 'Esperadas vs. Horas normales'}</h3>
             <div class="pind__graf-wrap"><canvas id="ficha-ch-esp"></canvas></div>
           </div>
         </div>
         <div class="pind__graf-grid" style="margin-top:var(--espacio-m)">
           <div class="pind__sec pind__graf-card" style="background:var(--color-fondo)">
-            <h3 class="pind__sec-tit">Ausentismo vs. Horas trabajadas</h3>
+            <h3 class="pind__sec-tit">Ausentismo vs. Horas normales</h3>
             <div class="pind__graf-wrap"><canvas id="ficha-ch-aus"></canvas></div>
           </div>
           <div class="pind__sec pind__graf-card" style="background:var(--color-fondo)">
@@ -464,7 +473,10 @@ export async function renderizarPresentismoFicha(contenedor) {
         : gF.indicePuntualidad >= 95 ? '#16a34a' : gF.indicePuntualidad >= 90 ? '#d97706' : '#dc2626';
 
       const kv = id => contFicha.querySelector(`#ficha-kv-${id}`);
-      kv('trab').textContent = fmtNum(gF.totalTrab);
+      // Total = normales + extra 50% + extra 100%, con los mismos valores que muestran sus tarjetas.
+      const totalExt50Real = gF.ext50Semana + gF.ext50Sabado;
+      kv('total').textContent = fmtNum(Math.round(gF.totalTrab) + totalExt50Real + Math.round(gF.totalExt100));
+      kv('trab').textContent = fmtNum(gF.totalTrab) + 'h';
       kv('sub-trab').textContent = !per
         ? `${labels[0]} – ${labels[labels.length - 1]}`
         : vista === 'q1' ? `1ra quincena · ${fmtPeriodo(per)}`
@@ -476,15 +488,10 @@ export async function renderizarPresentismoFicha(contenedor) {
       kv('idx').textContent = gF.idxAus + '%'; kv('idx').style.color = gF.colorIdx;
       kv('pres').textContent = gF.presGlobal + '%'; kv('pres').style.color = gF.colorPres;
 
-      const ext50Wrap = contFicha.querySelector('#ficha-kv-ext50-wrap');
-      const totalExt50Real = gF.ext50Semana + gF.ext50Sabado;
-      ext50Wrap.hidden = totalExt50Real <= 0;
+      // Las tarjetas de extras quedan siempre visibles (en 0 h si no hubo): son parte del desglose.
       kv('ext50').textContent = fmtNum(totalExt50Real) + 'h';
       kv('ext50-sub').textContent = `En semana: ${fmtNum(gF.ext50Semana)}h · Sábados: ${fmtNum(gF.ext50Sabado)}h`;
-
-      const ext100Wrap = contFicha.querySelector('#ficha-kv-ext100-wrap');
-      ext100Wrap.hidden = gF.totalExt100 <= 0;
-      kv('ext100').textContent = fmtNum(gF.totalExt100) + 'h';
+      kv('ext100').textContent = fmtNum(Math.round(gF.totalExt100)) + 'h';
 
       kv('tard').textContent = gF.diasTarde + gF.diasTemprano;
       kv('tard-sub').textContent = `${gF.diasTarde} tarde${gF.diasTarde !== 1 ? 's' : ''} · ${gF.diasTemprano} salida${gF.diasTemprano !== 1 ? 's' : ''} anticipada${gF.diasTemprano !== 1 ? 's' : ''}`;
@@ -555,7 +562,7 @@ export async function renderizarPresentismoFicha(contenedor) {
 
     graficosFicha.push(new Chart(contFicha.querySelector('#ficha-ch-horas').getContext('2d'), {
       type: 'bar',
-      data: { labels, datasets: [{ label: 'Horas trabajadas', data: g.horasTot, backgroundColor: ACENTO, borderRadius: 4 }] },
+      data: { labels, datasets: [{ label: 'Horas normales', data: g.horasTot, backgroundColor: ACENTO, borderRadius: 4 }] },
       options: { responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false },
           tooltip: { callbacks: { label: c => ` ${c.parsed.y.toLocaleString('es-AR')}h` } } },
@@ -568,7 +575,7 @@ export async function renderizarPresentismoFicha(contenedor) {
       data: { labels, datasets: [
         { label: 'Esperadas',  data: g.espTot,   backgroundColor: 'rgba(100,116,139,0.35)', borderRadius: 4 },
         ...(tipo === 'mensual' ? [{ label: 'Reales', data: realesPorPeriodo, backgroundColor: '#16a34add', borderRadius: 4 }] : []),
-        { label: 'Trabajadas', data: g.horasTot, backgroundColor: ACENTO + 'dd', borderRadius: 4 },
+        { label: 'Normales', data: g.horasTot, backgroundColor: ACENTO + 'dd', borderRadius: 4 },
       ]},
       options: { responsive: true, maintainAspectRatio: false,
         plugins: { legend: { position: 'top', labels: { boxWidth: 12 } },
@@ -580,7 +587,7 @@ export async function renderizarPresentismoFicha(contenedor) {
     graficosFicha.push(new Chart(contFicha.querySelector('#ficha-ch-aus').getContext('2d'), {
       type: 'bar',
       data: { labels, datasets: [
-        { type: 'bar',  label: 'Horas trabajadas', data: g.horasTot, backgroundColor: ACENTO + 'cc', borderRadius: 4, yAxisID: 'y' },
+        { type: 'bar',  label: 'Horas normales',   data: g.horasTot, backgroundColor: ACENTO + 'cc', borderRadius: 4, yAxisID: 'y' },
         { type: 'line', label: '% Ausentismo',     data: g.ausPct,   borderColor: '#f97316', backgroundColor: '#f9731620', pointBackgroundColor: '#f97316', pointRadius: 5, tension: 0.3, yAxisID: 'y2' },
       ]},
       options: { responsive: true, maintainAspectRatio: false,
@@ -1023,8 +1030,8 @@ export async function renderizarPresentismoFicha(contenedor) {
 
           <div class="pind__kpis pind__kpis--sm fg-pdf-bloque">
             <div class="pind__kpi">
-              <span class="pind__kpi-num" id="fg-kv-trab">${fmtNum(g.totalTrab)}</span>
-              <span class="pind__kpi-lbl">Horas trabajadas</span>
+              <span class="pind__kpi-num" id="fg-kv-total">${fmtNum(g.totalTrab + g.totalExt50 + g.totalExt100)}</span>
+              <span class="pind__kpi-lbl">Horas trabajadas totales</span>
               <span class="pind__kpi-sub" id="fg-kv-sub-trab">${labels[0]} – ${labels[labels.length - 1]}</span>
             </div>
             <div class="pind__kpi">
@@ -1034,8 +1041,26 @@ export async function renderizarPresentismoFicha(contenedor) {
             </div>
             <div class="pind__kpi pind__kpi--dest">
               <span class="pind__kpi-num" id="fg-kv-cumpl" style="color:${g.colorCumpl}">${g.cumplimiento}%</span>
-              <span class="pind__kpi-lbl">Cumplimiento de horas</span>
-              <span class="pind__kpi-sub">Trabajadas / Esperadas</span>
+              <span class="pind__kpi-lbl">Cumplimiento de horas normales</span>
+              <span class="pind__kpi-sub">Horas normales / Horas esperadas</span>
+            </div>
+          </div>
+
+          <div class="pind__kpis pind__kpis--sm fg-pdf-bloque" style="margin-top:8px">
+            <div class="pind__kpi">
+              <span class="pind__kpi-num" id="fg-kv-trab">${fmtNum(g.totalTrab)}h</span>
+              <span class="pind__kpi-lbl">Horas normales</span>
+              <span class="pind__kpi-sub">Jornada ordinaria</span>
+            </div>
+            <div class="pind__kpi" id="fg-kv-ext50-wrap">
+              <span class="pind__kpi-num" id="fg-kv-ext50" style="color:#7c3aed">${fmtNum(g.totalExt50)}h</span>
+              <span class="pind__kpi-lbl">Horas extras 50%</span>
+              <span class="pind__kpi-sub" id="fg-kv-ext50-sub"></span>
+            </div>
+            <div class="pind__kpi" id="fg-kv-ext100-wrap">
+              <span class="pind__kpi-num" id="fg-kv-ext100" style="color:#dc2626">${fmtNum(g.totalExt100)}h</span>
+              <span class="pind__kpi-lbl">Horas extras 100%</span>
+              <span class="pind__kpi-sub">Liquidadas al 100%</span>
             </div>
           </div>
 
@@ -1054,15 +1079,6 @@ export async function renderizarPresentismoFicha(contenedor) {
               <span class="pind__kpi-num" id="fg-kv-pres" style="color:${g.colorPres}">${g.presGlobal}%</span>
               <span class="pind__kpi-lbl">Presentismo (días)</span>
               <span class="pind__kpi-sub">Días presentes / Días lab.</span>
-            </div>
-            <div class="pind__kpi" id="fg-kv-ext50-wrap"${g.totalExt50 > 0 ? '' : ' hidden'}>
-              <span class="pind__kpi-num" id="fg-kv-ext50" style="color:#7c3aed">${fmtNum(g.totalExt50)}h</span>
-              <span class="pind__kpi-lbl">Horas extra 50%</span>
-              <span class="pind__kpi-sub" id="fg-kv-ext50-sub"></span>
-            </div>
-            <div class="pind__kpi" id="fg-kv-ext100-wrap"${g.totalExt100 > 0 ? '' : ' hidden'}>
-              <span class="pind__kpi-num" id="fg-kv-ext100" style="color:#dc2626">${fmtNum(g.totalExt100)}h</span>
-              <span class="pind__kpi-lbl">Horas extra 100%</span>
             </div>
           </div>
 
@@ -1097,17 +1113,17 @@ export async function renderizarPresentismoFicha(contenedor) {
 
           <div class="pind__graf-grid fg-pdf-bloque" style="margin-top:var(--espacio-m)">
             <div class="pind__sec pind__graf-card" style="background:var(--color-fondo)">
-              <h3 class="pind__sec-tit">Horas trabajadas por período</h3>
+              <h3 class="pind__sec-tit">Horas normales por período</h3>
               <div class="pind__graf-wrap"><canvas id="fg-ch-horas"></canvas></div>
             </div>
             <div class="pind__sec pind__graf-card" style="background:var(--color-fondo)">
-              <h3 class="pind__sec-tit">Esperadas vs. Reales vs. Trabajadas</h3>
+              <h3 class="pind__sec-tit">Esperadas vs. Reales vs. Normales</h3>
               <div class="pind__graf-wrap"><canvas id="fg-ch-esp"></canvas></div>
             </div>
           </div>
           <div class="pind__graf-grid fg-pdf-bloque" style="margin-top:var(--espacio-m)">
             <div class="pind__sec pind__graf-card" style="background:var(--color-fondo)">
-              <h3 class="pind__sec-tit">Ausentismo vs. Horas trabajadas</h3>
+              <h3 class="pind__sec-tit">Ausentismo vs. Horas normales</h3>
               <div class="pind__graf-wrap"><canvas id="fg-ch-aus"></canvas></div>
             </div>
             <div class="pind__sec pind__graf-card" style="background:var(--color-fondo)">
@@ -1161,7 +1177,7 @@ export async function renderizarPresentismoFicha(contenedor) {
 
         graficosGrupo.push(new Chart(dashEl.querySelector('#fg-ch-horas').getContext('2d'), {
           type: 'bar',
-          data: { labels, datasets: [{ label: 'Horas trabajadas', data: g.horasTot, backgroundColor: ACENTO, borderRadius: 4 }] },
+          data: { labels, datasets: [{ label: 'Horas normales', data: g.horasTot, backgroundColor: ACENTO, borderRadius: 4 }] },
           options: { responsive: true, maintainAspectRatio: false,
             plugins: { legend: { display: false },
               tooltip: { callbacks: { label: c => ` ${c.parsed.y.toLocaleString('es-AR')}h` } } },
@@ -1174,7 +1190,7 @@ export async function renderizarPresentismoFicha(contenedor) {
           data: { labels, datasets: [
             { label: 'Esperadas',  data: g.espTot,   backgroundColor: 'rgba(100,116,139,0.35)', borderRadius: 4 },
             ...(realesPorPeriodo.some(v => v > 0) ? [{ label: 'Reales', data: realesPorPeriodo, backgroundColor: '#16a34add', borderRadius: 4 }] : []),
-            { label: 'Trabajadas', data: g.horasTot, backgroundColor: ACENTO + 'dd', borderRadius: 4 },
+            { label: 'Normales', data: g.horasTot, backgroundColor: ACENTO + 'dd', borderRadius: 4 },
           ]},
           options: { responsive: true, maintainAspectRatio: false,
             plugins: { legend: { position: 'top', labels: { boxWidth: 12 } },
@@ -1186,7 +1202,7 @@ export async function renderizarPresentismoFicha(contenedor) {
         graficosGrupo.push(new Chart(dashEl.querySelector('#fg-ch-aus').getContext('2d'), {
           type: 'bar',
           data: { labels, datasets: [
-            { type: 'bar',  label: 'Horas trabajadas', data: g.horasTot, backgroundColor: ACENTO + 'cc', borderRadius: 4, yAxisID: 'y' },
+            { type: 'bar',  label: 'Horas normales',   data: g.horasTot, backgroundColor: ACENTO + 'cc', borderRadius: 4, yAxisID: 'y' },
             { type: 'line', label: '% Ausentismo',     data: g.ausPct,   borderColor: '#f97316', backgroundColor: '#f9731620', pointBackgroundColor: '#f97316', pointRadius: 5, tension: 0.3, yAxisID: 'y2' },
           ]},
           options: { responsive: true, maintainAspectRatio: false,
@@ -1267,7 +1283,10 @@ export async function renderizarPresentismoFicha(contenedor) {
       const kv = id => dashEl.querySelector(`#fg-kv-${id}`);
       if (!kv('trab')) return; // dashboard sin montar (nadie seleccionado o sin datos)
 
-      kv('trab').textContent = fmtNum(gF.totalTrab);
+      // Total = normales + extra 50% + extra 100%, con los mismos valores que muestran sus tarjetas.
+      const totalExt50Real = gF.ext50Semana + gF.ext50Sabado;
+      kv('total').textContent = fmtNum(Math.round(gF.totalTrab) + totalExt50Real + Math.round(gF.totalExt100));
+      kv('trab').textContent = fmtNum(gF.totalTrab) + 'h';
       kv('sub-trab').textContent = per ? fmtPeriodo(per) : `${labels[0]} – ${labels[labels.length - 1]}`;
       kv('esp').textContent = fmtNum(gF.totalEsp);
       kv('cumpl').textContent = gF.cumplimiento + '%'; kv('cumpl').style.color = gF.colorCumpl;
@@ -1275,15 +1294,10 @@ export async function renderizarPresentismoFicha(contenedor) {
       kv('idx').textContent = gF.idxAus + '%'; kv('idx').style.color = gF.colorIdx;
       kv('pres').textContent = gF.presGlobal + '%'; kv('pres').style.color = gF.colorPres;
 
-      const ext50Wrap = dashEl.querySelector('#fg-kv-ext50-wrap');
-      const totalExt50Real = gF.ext50Semana + gF.ext50Sabado;
-      ext50Wrap.hidden = totalExt50Real <= 0;
+      // Las tarjetas de extras quedan siempre visibles (en 0 h si no hubo): son parte del desglose.
       kv('ext50').textContent = fmtNum(totalExt50Real) + 'h';
       kv('ext50-sub').textContent = `En semana: ${fmtNum(gF.ext50Semana)}h · Sábados: ${fmtNum(gF.ext50Sabado)}h`;
-
-      const ext100Wrap = dashEl.querySelector('#fg-kv-ext100-wrap');
-      ext100Wrap.hidden = gF.totalExt100 <= 0;
-      kv('ext100').textContent = fmtNum(gF.totalExt100) + 'h';
+      kv('ext100').textContent = fmtNum(Math.round(gF.totalExt100)) + 'h';
 
       kv('tard').textContent = gF.diasTarde + gF.diasTemprano;
       kv('tard-sub').textContent = `${gF.diasTarde} tarde${gF.diasTarde !== 1 ? 's' : ''} · ${gF.diasTemprano} salida${gF.diasTemprano !== 1 ? 's' : ''} anticipada${gF.diasTemprano !== 1 ? 's' : ''}`;
