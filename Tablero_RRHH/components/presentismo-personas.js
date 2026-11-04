@@ -1,12 +1,10 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { sbTraerTodo, sbTraerTodoCache } from '../data/supabase-rest.js';
+import { MESES, MESES_CORTO, htmlError } from './util.js';
 import { obtenerClasificacionPuestos, tipoPuesto } from '../data/clasificacion-puestos.js';
 import { obtenerClasificacionAusencias, categoriaAusencia } from '../data/clasificacion-ausencias.js';
 import { crearOrdenTabla } from './tabla-ordenable.js';
 
-const HDR = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 const TIPO_LABEL = { mensual: 'Mensual', quincenal: 'Quincenal', sin_asignar: 'Sin asignar' };
-const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-const MESES_CORTO = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
 // Motivo de ausencia (ver Horas y Presentismo → Parametrización) — reemplaza al genérico
 // "Justificado"/"Ausente sin justificar" en el calendario y la tabla diaria de esta pantalla.
@@ -191,15 +189,13 @@ export async function renderizarPresentismoPersonas(contenedor) {
 
   let periodos = [];
   try {
-    const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/rrhh_horas_mensual?select=periodo&order=periodo.desc`,
-      { headers: HDR }
-    );
-    if (r.ok) {
-      const rows = await r.json();
-      periodos = [...new Set(rows.map(r => r.periodo))];
-    }
-  } catch {}
+    // Paginado completo: con más de 1000 filas un fetch simple cortaba y faltaban períodos viejos.
+    const rows = await sbTraerTodoCache('rrhh_horas_mensual?select=periodo&order=periodo.desc,id.asc');
+    periodos = [...new Set(rows.map(r => r.periodo))];
+  } catch (e) {
+    contenedor.innerHTML = htmlError('No se pudieron cargar los períodos de horas.', e.message);
+    return;
+  }
 
   if (!periodos.length) {
     contenedor.innerHTML = `<div class="pres__vacio">No hay datos cargados. Usá la pestaña "Cargar datos" para importar el archivo de Tango.</div>`;
@@ -211,17 +207,18 @@ export async function renderizarPresentismoPersonas(contenedor) {
   const empMap = new Map();
   let mapaAusencias = new Map();
   try {
-    const [rE, mapaClasif, mapaAus] = await Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/empleados?select=legajo,desc_puesto`, { headers: HDR }),
+    const [empleados, mapaClasif, mapaAus] = await Promise.all([
+      sbTraerTodoCache('empleados?select=legajo,desc_puesto&order=id.asc'),
       obtenerClasificacionPuestos(),
       obtenerClasificacionAusencias(),
     ]);
-    if (rE.ok) {
-      const empleados = await rE.json();
-      empleados.forEach(e => empMap.set(String(e.legajo), tipoPuesto(e.desc_puesto, mapaClasif)));
-    }
+    empleados.forEach(e => empMap.set(String(e.legajo), tipoPuesto(e.desc_puesto, mapaClasif)));
     mapaAusencias = mapaAus;
-  } catch {}
+  } catch (e) {
+    // Fallback intencional: sin plantel la tabla se muestra igual, solo que todos quedan
+    // "Sin asignar" en el filtro por tipo de puesto.
+    console.warn('Por persona: no se pudo leer el plantel para clasificar puestos', e);
+  }
 
   let periodoActivo = periodos[0];
   let filtroEmpresa = '';
@@ -308,12 +305,13 @@ export async function renderizarPresentismoPersonas(contenedor) {
   async function cargarYMostrar() {
     tablaWrap.innerHTML = '<div class="pres__loading">Cargando…</div>';
     try {
-      const r = await fetch(
-        `${SUPABASE_URL}/rest/v1/rrhh_horas_mensual?periodo=eq.${periodoActivo}&order=apellido.asc`,
-        { headers: HDR }
-      );
-      datosActivos = r.ok ? await r.json() : [];
-    } catch { datosActivos = []; }
+      datosActivos = await sbTraerTodoCache(`rrhh_horas_mensual?periodo=eq.${periodoActivo}&order=apellido.asc,id.asc`);
+    } catch (e) {
+      datosActivos = [];
+      renderPills();
+      tablaWrap.innerHTML = htmlError('No se pudieron cargar los datos del período.', e.message);
+      return;
+    }
     renderPills();
     renderTabla(datosActivos);
   }
@@ -446,24 +444,24 @@ export async function renderizarPresentismoPersonas(contenedor) {
       let otDelMes = otCache.get(cacheKey);
       if (detalle === undefined || eventos === undefined || otDelMes === undefined) {
         try {
-          const [rDet, rEv, rOt] = await Promise.all([
-            fetch(`${SUPABASE_URL}/rest/v1/rrhh_horas_detalle?legajo=eq.${legajo}&periodo=eq.${periodoActivo}&order=fecha.asc,tipo_hora.asc`, { headers: HDR }),
-            fetch(`${SUPABASE_URL}/rest/v1/rrhh_tardanzas_salidas?legajo=eq.${legajo}&periodo=eq.${periodoActivo}`, { headers: HDR }),
+          [detalle, eventos, otDelMes] = await Promise.all([
+            sbTraerTodo(`rrhh_horas_detalle?legajo=eq.${legajo}&periodo=eq.${periodoActivo}&order=fecha.asc,tipo_hora.asc,id.asc`),
+            sbTraerTodo(`rrhh_tardanzas_salidas?legajo=eq.${legajo}&periodo=eq.${periodoActivo}&order=id.asc`),
             // Se trae también lo anómalo (no solo anomalo=eq.false): renderDetalleDia lo separa
             // y lo muestra como aviso en vez de descartarlo en silencio (ver celdaOT).
             persona?.empresa
-              ? fetch(`${SUPABASE_URL}/rest/v1/horas_ot_detalle?legajo=eq.${legajo}&periodo=eq.${periodoActivo}&empresa=eq.${persona.empresa}&select=fecha,ot,operacion,horas,anomalo`, { headers: HDR })
-              : Promise.resolve(null),
+              ? sbTraerTodo(`horas_ot_detalle?legajo=eq.${legajo}&periodo=eq.${periodoActivo}&empresa=eq.${persona.empresa}&select=fecha,ot,operacion,horas,anomalo&order=id.asc`)
+              : Promise.resolve([]),
           ]);
-          detalle = rDet.ok ? await rDet.json() : [];
-          eventos = rEv.ok ? await rEv.json() : [];
-          otDelMes = rOt?.ok ? await rOt.json() : [];
           detalleCache.set(cacheKey, detalle);
           eventosCache.set(cacheKey, eventos);
           otCache.set(cacheKey, otDelMes);
         } catch (err) {
+          // No se cachea: al volver a abrir la fila se reintenta.
           console.error('Error al cargar detalle:', err);
-          detalle = []; eventos = []; otDelMes = [];
+          collapseEl.innerHTML = htmlError('No se pudo cargar el detalle de esta persona.', err.message);
+          expandirColapsable(collapseEl);
+          return;
         }
       }
 

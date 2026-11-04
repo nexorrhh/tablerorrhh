@@ -22,7 +22,8 @@
 //      (cambio de función: alguien con antigüedad real pasa a período de prueba igual, porque
 //      PG-6.01 lo exige y el sistema no guarda historial de puesto para detectarlo solo).
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { sbTraerTodoCache } from '../data/supabase-rest.js';
+import { htmlError } from './util.js';
 import {
   obtenerEvaluadores, crearEvaluador, cambiarActivoEvaluador, borrarEvaluador, guardarEmailEvaluador,
   obtenerAsignacionesPuestos, agregarPuestoAsignado, quitarPuestoAsignado, dniDesdeCuil,
@@ -37,8 +38,6 @@ import { obtenerPruebaForzadaManual, marcarPruebaForzada, quitarPruebaForzada } 
 import { obtenerClasificacionPuestos, tipoPuesto, normPuesto } from '../data/clasificacion-puestos.js';
 import { EMP_LABEL, TIPO_LABEL } from './desempeno-cargar.js';
 
-const HDR = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
-
 function eP(s) { return (s || '').toString().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function normTxt(s) { return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
 function fmtN(v) { return (+v || 0).toLocaleString('es-AR', { maximumFractionDigits: 2 }); }
@@ -49,8 +48,8 @@ export async function renderizarDesempenoParametrizacion(contenedor) {
   let empleados = [], evaluadores = [], asignaciones = [], config = CONFIG_DEFAULT, reingresosManuales = [], pruebaForzada = [];
   let mapaClasif = new Map(), configPorPuesto = new Map(), puestosExcluidos = new Set();
   try {
-    const [rE, ev, asig, cfg, rm, mc, cpp, pe, pf] = await Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/empleados?select=legajo,apellido_y_nombre,empresa,desc_puesto,activo,cuil&limit=2000`, { headers: HDR }),
+    const [emp, ev, asig, cfg, rm, mc, cpp, pe, pf] = await Promise.all([
+      sbTraerTodoCache('empleados?select=legajo,apellido_y_nombre,empresa,desc_puesto,activo,cuil&order=id.asc'),
       obtenerEvaluadores(),
       obtenerAsignacionesPuestos(),
       obtenerConfigDesempeno(),
@@ -60,7 +59,7 @@ export async function renderizarDesempenoParametrizacion(contenedor) {
       obtenerPuestosExcluidosDesempeno(),
       obtenerPruebaForzadaManual(),
     ]);
-    empleados = rE.ok ? await rE.json() : [];
+    empleados = emp;
     evaluadores = ev;
     asignaciones = asig;
     config = cfg;
@@ -70,7 +69,7 @@ export async function renderizarDesempenoParametrizacion(contenedor) {
     puestosExcluidos = pe;
     pruebaForzada = pf;
   } catch (e) {
-    contenedor.innerHTML = `<div class="pres__vacio">Error al cargar: ${eP(e.message)}</div>`;
+    contenedor.innerHTML = htmlError('Error al cargar.', e.message);
     return;
   }
 

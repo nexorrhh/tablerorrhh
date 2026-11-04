@@ -31,7 +31,7 @@ export async function renderizarPermisosIndicadores(contenedor) {
   destruirGraficos();
   contenedor.innerHTML = '<div class="pres__loading">Cargando indicadores…</div>';
 
-  const { items: permisos, fallos } = await obtenerEstadisticasPermisos().catch(() => ({ items: [], fallos: ['CIMOMET', 'COMOING'] }));
+  const { items: permisos, fallos } = await obtenerEstadisticasPermisos().catch(err => { console.error(err); return { items: [], fallos: ['CIMOMET', 'COMOING'] }; });
 
   if (!permisos.length && fallos.length === 2) {
     contenedor.innerHTML = `

@@ -9,7 +9,8 @@
 // / presentismo-indicadores.js (no cuentan como ausentismo), así que no son "motivo de ausencia"
 // a clasificar. AUS_FER (feriado) se excluye porque no es una falta de la persona.
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { SUPABASE_URL } from '../data/fuentes.js';
+import { sbTraerTodoCache } from '../data/supabase-rest.js';
 import {
   CATEGORIAS_AUSENCIA,
   obtenerClasificacionAusencias,
@@ -19,8 +20,6 @@ import {
 } from '../data/clasificacion-ausencias.js';
 import { fetchTodasFilas } from './presentismo-indicadores.js';
 import { obtenerExentosFichada, marcarExentoFichada, quitarExencionFichada } from '../data/fichadas-exentos.js';
-
-const HDR = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 
 // Códigos con tratamiento propio aguas arriba — no son "motivo de ausencia" a clasificar acá.
 const CODIGOS_EXCLUIDOS = new Set(['VACACION', 'VIAJE', 'AUS_FER']);
@@ -62,7 +61,7 @@ export async function renderizarPresentismoParametrizacion(contenedor) {
       // quedaban invisibles acá aunque sí se contaran como "sin clasificar" en los gráficos.
       fetchTodasFilas(`${SUPABASE_URL}/rest/v1/rrhh_tardanzas_salidas?tipo=eq.ausente&select=codigo_justificacion,descripcion_justificacion&order=id.asc`),
       obtenerClasificacionAusencias(),
-      fetch(`${SUPABASE_URL}/rest/v1/empleados?select=legajo,apellido_y_nombre,empresa,activo&limit=2000`, { headers: HDR }).then(r => r.ok ? r.json() : []),
+      sbTraerTodoCache('empleados?select=legajo,apellido_y_nombre,empresa,activo&order=id.asc'),
       obtenerExentosFichada(),
     ]);
   } catch (e) {

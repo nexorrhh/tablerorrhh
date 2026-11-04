@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pruebas de cálculos</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #1f2933; background: #fff; }
+    h1 { font-size: 1.2rem; }
+    li { margin: 6px 0; }
+    .ok { color: #15803d; }
+    .falla { color: #b91c1c; }
+    code { display: block; margin-left: 1.5em; color: #b91c1c; }
+  </style>
+</head>
+<body>
+  <h1>Pruebas de cálculos de Horas y Presentismo</h1>
+  <p id="resumen">Corriendo…</p>
+  <ul id="lista"></ul>
+  <script type="module">
+    import { correrCasos } from './casos-presentismo.js';
+    const res = correrCasos();
+    const lista = document.getElementById('lista');
+    res.forEach(r => {
+      const li = document.createElement('li');
+      li.className = r.ok ? 'ok' : 'falla';
+      li.textContent = (r.ok ? '✓ ' : '✗ ') + r.nombre;
+      if (!r.ok) { const c = document.createElement('code'); c.textContent = r.error; li.appendChild(c); }
+      lista.appendChild(li);
+    });
+    const fallas = res.filter(r => !r.ok).length;
+    document.getElementById('resumen').textContent = `${res.length - fallas} de ${res.length} casos OK`;
+  </script>
+</body>
+</html>

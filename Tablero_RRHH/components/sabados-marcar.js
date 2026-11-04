@@ -1,27 +1,7 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { sbGet, sbTraerTodo, sbTraerTodoCache, sbPost, sbPatch, sbDelete } from '../data/supabase-rest.js';
+import { htmlError } from './util.js';
 import { obtenerUsuario } from '../data/usuario-activo.js';
 import { cerrarConAnimacion } from './modal-animado.js';
-
-const HDR = {
-  apikey: SUPABASE_ANON_KEY,
-  Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
-  'Content-Type': 'application/json',
-};
-
-async function sbGet(path) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: HDR });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  return r.json();
-}
-
-async function sbMutate(method, path, body) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    method,
-    headers: { ...HDR, Prefer: 'return=minimal' },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-}
 
 // Mientras un operativo esté 'pendiente_validacion' o 'rechazada', la lista de gente que
 // cargó el supervisor de planta puede seguir cambiando — recién cuando el gerente de
@@ -30,8 +10,8 @@ async function sbMutate(method, path, body) {
 // no tienen por qué revalidarse, así que solo se excluyen esos dos estados puntuales —
 // todo lo demás (incluido estado null/legado) se sigue mostrando como siempre.
 async function cargarCitaciones() {
-  const data = await sbGet(
-    'citaciones?select=id,fecha,tipo,dia_semana,estado,citacion_detalle(situacion)&order=fecha.desc'
+  const data = await sbTraerTodo(
+    'citaciones?select=id,fecha,tipo,dia_semana,estado,citacion_detalle(situacion)&order=fecha.desc,id.asc'
   );
   return data
     .filter(c => c.estado !== 'pendiente_validacion' && c.estado !== 'rechazada')
@@ -45,6 +25,7 @@ export async function renderizarSabadosMarcar(contenedor) {
   let empleadosActivos = [];
   let borrarIds        = [];
   let toastTimer       = null;
+  let errorEmpleados   = null;
   // Eliminar un operativo lo borra sin posibilidad de deshacerlo, incluida toda la
   // asistencia ya cargada — a raíz de un operativo real que desapareció así por error,
   // se restringió a un permiso puntual (columna puede_eliminar_operativos en
@@ -62,9 +43,13 @@ export async function renderizarSabadosMarcar(contenedor) {
   }
 
   // Empleados activos en segundo plano (necesarios para el modal)
-  sbGet('empleados?select=legajo,empresa,apellido_y_nombre,desc_puesto&activo=eq.true&order=apellido_y_nombre.asc&limit=2000')
+  sbTraerTodoCache('empleados?select=legajo,empresa,apellido_y_nombre,desc_puesto&activo=eq.true&order=apellido_y_nombre.asc,id.asc')
     .then(d => { empleadosActivos = d; })
-    .catch(() => {});
+    .catch(e => {
+      // No bloquea la bandeja, pero el modal "Agregar persona" avisa en vez de decir "sin coincidencias".
+      console.warn('Sábados: no se pudo cargar el plantel de empleados activos', e);
+      errorEmpleados = e;
+    });
 
   mostrarBandeja();
 
@@ -116,8 +101,8 @@ export async function renderizarSabadosMarcar(contenedor) {
     const btn = contenedor.querySelector('#smark-btn-eliminar');
     if (btn) { btn.disabled = true; btn.textContent = 'Eliminando…'; }
     try {
-      await sbMutate('DELETE', `citacion_detalle?citacion_id=eq.${citacionActual.id}`);
-      await sbMutate('DELETE', `citaciones?id=eq.${citacionActual.id}`);
+      await sbDelete(`citacion_detalle?citacion_id=eq.${citacionActual.id}`);
+      await sbDelete(`citaciones?id=eq.${citacionActual.id}`);
       citaciones = await cargarCitaciones();
       citacionActual = null;
       mostrarToast('Operativo eliminado', 'ok');
@@ -375,6 +360,11 @@ export async function renderizarSabadosMarcar(contenedor) {
     const lista = contenedor.querySelector('#smark-modal-lista');
     if (!lista) return;
 
+    if (errorEmpleados) {
+      lista.innerHTML = htmlError('No se pudo cargar el plantel de empleados.', errorEmpleados.message);
+      return;
+    }
+
     const txt     = normTxt(input?.value || '');
     const yaEstan = new Set(detalleActual.map(d => d.legajo + '|' + d.empresa));
 
@@ -558,14 +548,14 @@ export async function renderizarSabadosMarcar(contenedor) {
     try {
       // Borrar no convocados quitados
       for (const id of borrarIds) {
-        await sbMutate('DELETE', `citacion_detalle?id=eq.${id}`);
+        await sbDelete(`citacion_detalle?id=eq.${id}`);
       }
       borrarIds = [];
 
       // Insertar nuevos no convocados
       const nuevos = detalleActual.filter(d => !d.id);
       if (nuevos.length) {
-        await sbMutate('POST', 'citacion_detalle', nuevos.map(d => ({
+        await sbPost('citacion_detalle', nuevos.map(d => ({
           citacion_id:      d.citacion_id,
           legajo:           d.legajo,
           empresa:          d.empresa,
@@ -581,7 +571,7 @@ export async function renderizarSabadosMarcar(contenedor) {
 
       // Actualizar situación en registros existentes
       for (const d of detalleActual.filter(x => x.id)) {
-        await sbMutate('PATCH', `citacion_detalle?id=eq.${d.id}`, { situacion: d.situacion });
+        await sbPatch(`citacion_detalle?id=eq.${d.id}`, { situacion: d.situacion });
       }
 
       mostrarToast('Asistencia guardada', 'ok');

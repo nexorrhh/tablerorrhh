@@ -2,46 +2,33 @@
 // agreguen a futuro). Contratos/Licencias/Institucional NO usan este archivo — quedan con su
 // propia copia de estos mismos helpers para no tocar código que ya funciona.
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
-
-const HDR = {
-  apikey:         SUPABASE_ANON_KEY,
-  Authorization:  `Bearer ${SUPABASE_ANON_KEY}`,
-  'Content-Type': 'application/json',
-};
+import { sbGet, sbTraerTodo, sbPost, sbPatch, sbDelete } from '../data/supabase-rest.js';
 
 // ── CRUD Supabase parametrizado por tabla ────────────────────────────────────
+// Envoltorio fino sobre data/supabase-rest.js: todas lanzan error si la respuesta no es OK.
 export function crearHelpersSupabase(tabla) {
   return {
-    async sbGet(q = '') {
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/${tabla}?${q}`, { headers: HDR });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
+    // Una sola página: usar solo con filtros que devuelvan pocas filas.
+    sbGet(q = '') {
+      return sbGet(`${tabla}?${q}`);
+    },
+    // Todas las filas (pagina de a 1000). `q` debería incluir un order= por columna única.
+    sbTraerTodo(q = '') {
+      return sbTraerTodo(`${tabla}?${q}`);
     },
     async sbInsert(body) {
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/${tabla}`, {
-        method: 'POST', headers: { ...HDR, Prefer: 'return=minimal' }, body: JSON.stringify(body),
-      });
-      if (!r.ok) throw new Error(await r.text());
+      await sbPost(tabla, body);
     },
     // Igual que sbInsert, pero devuelve la fila creada (útil cuando hace falta el id nuevo).
     async sbInsertRet(body) {
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/${tabla}`, {
-        method: 'POST', headers: { ...HDR, Prefer: 'return=representation' }, body: JSON.stringify(body),
-      });
-      if (!r.ok) throw new Error(await r.text());
-      const filas = await r.json();
+      const filas = await sbPost(tabla, body, 'return=representation');
       return filas[0];
     },
     async sbUpdate(id, body) {
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/${tabla}?id=eq.${id}`, {
-        method: 'PATCH', headers: { ...HDR, Prefer: 'return=minimal' }, body: JSON.stringify(body),
-      });
-      if (!r.ok) throw new Error(await r.text());
+      await sbPatch(`${tabla}?id=eq.${id}`, body);
     },
     async sbDelete(id) {
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/${tabla}?id=eq.${id}`, { method: 'DELETE', headers: HDR });
-      if (!r.ok) throw new Error(await r.text());
+      await sbDelete(`${tabla}?id=eq.${id}`);
     },
   };
 }

@@ -3,15 +3,10 @@
 // una grilla enorme cuando hay muchos proveedores). La grilla de 12 meses completa queda
 // disponible detrás de un botón, y abajo sigue la tabla de detalle filtrable.
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { sbTraerTodo, sbPost } from '../data/supabase-rest.js';
+import { MESES, MESES_CORTO } from './util.js';
 import { e, errHtml, estadoAutorizacionInfo, crearToast } from './venc-comun.js';
 import { labelTipoComprobante } from '../data/parser-arca.js';
-
-const HDR      = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
-const HDR_JSON = { ...HDR, 'Content-Type': 'application/json' };
-
-const MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-const MESES_LARGO = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
 // Últimos 12 meses (más viejo → más nuevo), cada uno como { key: 'YYYY-MM', anio, mes }
 function ventana12Meses() {
@@ -30,13 +25,16 @@ export async function renderizarArcaSeguimiento(contenedor) {
   const meses = ventana12Meses();
   const desde = `${meses[0].key}-01`;
 
+  // Antes los fetch devolvían [] ante un error HTTP, así que este chequeo nunca saltaba
+  // y la pantalla decía "Sin proveedores en seguimiento". Ahora sbTraerTodo lanza.
   const [rProv, rComp, rExc] = await Promise.allSettled([
-    fetch(`${SUPABASE_URL}/rest/v1/arca_proveedores?order=razon_social.asc`, { headers: HDR }).then(r => r.ok ? r.json() : []),
-    fetch(`${SUPABASE_URL}/rest/v1/arca_comprobantes?fecha_emision=gte.${desde}&order=fecha_emision.desc`, { headers: HDR }).then(r => r.ok ? r.json() : []),
-    fetch(`${SUPABASE_URL}/rest/v1/arca_seguimiento_excepciones?select=proveedor_id,periodo`, { headers: HDR }).then(r => r.ok ? r.json() : []),
+    sbTraerTodo('arca_proveedores?order=razon_social.asc,id.asc'),
+    sbTraerTodo(`arca_comprobantes?fecha_emision=gte.${desde}&order=fecha_emision.desc,id.desc`),
+    sbTraerTodo('arca_seguimiento_excepciones?select=proveedor_id,periodo&order=id.asc'),
   ]);
 
   if (rProv.status !== 'fulfilled' || rComp.status !== 'fulfilled') {
+    console.error(rProv.reason ?? rComp.reason);
     contenedor.innerHTML = errHtml('No se pudo cargar el seguimiento de comprobantes.');
     return;
   }
@@ -44,6 +42,9 @@ export async function renderizarArcaSeguimiento(contenedor) {
   const proveedores  = rProv.value;
   const comprobantes = rComp.value;
   // "proveedorId|periodo" → no se espera comprobante de ese proveedor ese mes puntual.
+  // Las excepciones son secundarias: si no se pueden leer, la vista se muestra igual
+  // (a lo sumo marca como faltante un mes que se había excluido).
+  if (rExc.status !== 'fulfilled') console.warn('ARCA Seguimiento: no se pudieron leer las excepciones', rExc.reason);
   const excepciones = new Set((rExc.status === 'fulfilled' ? rExc.value : []).map(x => `${x.proveedor_id}|${x.periodo}`));
 
   if (proveedores.length === 0) {
@@ -79,11 +80,7 @@ export async function renderizarArcaSeguimiento(contenedor) {
   async function noEsperarEsteMes(proveedorId, nombre, periodo, periodoLabel) {
     if (!confirm(`¿Marcar que no se espera un comprobante de "${nombre}" en ${periodoLabel}? Solo afecta a ese mes — si el mes que viene sigue sin facturar, va a volver a aparecer como faltante.`)) return;
     try {
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/arca_seguimiento_excepciones`, {
-        method: 'POST', headers: { ...HDR_JSON, Prefer: 'return=minimal' },
-        body: JSON.stringify({ proveedor_id: +proveedorId, periodo }),
-      });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
+      await sbPost('arca_seguimiento_excepciones', { proveedor_id: +proveedorId, periodo });
       excepciones.add(`${proveedorId}|${periodo}`);
       renderVista();
       toast('Listo, no se va a esperar ese mes', 'ok');
@@ -99,7 +96,7 @@ export async function renderizarArcaSeguimiento(contenedor) {
     const base = new Date();
     const objetivo = new Date(base.getFullYear(), base.getMonth() + offsetMesFaltantes, 1);
     const keyObjetivo = `${objetivo.getFullYear()}-${String(objetivo.getMonth() + 1).padStart(2, '0')}`;
-    const labelObjetivo = `${MESES_LARGO[objetivo.getMonth()]} ${objetivo.getFullYear()}`;
+    const labelObjetivo = `${MESES[objetivo.getMonth()]} ${objetivo.getFullYear()}`;
 
     const faltantes = activos.filter(p =>
       !(porCuitPeriodo.get(p.cuit)?.get(keyObjetivo)?.length > 0) &&
@@ -113,14 +110,14 @@ export async function renderizarArcaSeguimiento(contenedor) {
         const items = porPeriodo.get(m.key) ?? [];
         const cls = items.length > 0 ? 'venc__badge--verde' : 'venc__badge--rojo';
         const txt = items.length > 0 ? String(items.length) : '0';
-        return `<td><span class="venc__badge ${cls}" title="${MESES_LARGO[m.mes]} ${m.anio}">${txt}</span></td>`;
+        return `<td><span class="venc__badge ${cls}" title="${MESES[m.mes]} ${m.anio}">${txt}</span></td>`;
       }).join('');
       const nombre = p.razon_social ? e(p.razon_social) : '<span class="venc__td-muted">Pendiente de detectar…</span>';
       return `<tr><td class="venc__td-bold">${nombre}<span class="venc__td-muted"> · ${e(p.cuit)}</span></td>${celdas}</tr>`;
     }).join('');
 
     const opcionesProveedor = proveedores.map(p => `<option value="${e(p.cuit)}" ${filtroProveedor===p.cuit?'selected':''}>${e(p.razon_social) || p.cuit}</option>`).join('');
-    const opcionesMes = meses.slice().reverse().map(m => `<option value="${m.key}" ${filtroMes===m.key?'selected':''}>${MESES_LARGO[m.mes]} ${m.anio}</option>`).join('');
+    const opcionesMes = meses.slice().reverse().map(m => `<option value="${m.key}" ${filtroMes===m.key?'selected':''}>${MESES[m.mes]} ${m.anio}</option>`).join('');
 
     const detalle = comprobantes.filter(c =>
       (!filtroProveedor || c.cuit === filtroProveedor) &&
@@ -170,7 +167,7 @@ export async function renderizarArcaSeguimiento(contenedor) {
               <table class="venc__tabla">
                 <thead><tr>
                   <th>Proveedor</th>
-                  ${meses.map(m => `<th>${MESES[m.mes]} ${String(m.anio).slice(2)}</th>`).join('')}
+                  ${meses.map(m => `<th>${MESES_CORTO[m.mes]} ${String(m.anio).slice(2)}</th>`).join('')}
                 </tr></thead>
                 <tbody>${filasGrid}</tbody>
               </table>

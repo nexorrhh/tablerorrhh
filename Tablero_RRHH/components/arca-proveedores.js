@@ -6,7 +6,7 @@ import { obtenerUsuario } from '../data/usuario-activo.js';
 import { cerrarConAnimacion } from './modal-animado.js';
 
 const TABLA = 'arca_proveedores';
-const { sbGet, sbInsert, sbInsertRet, sbUpdate, sbDelete } = crearHelpersSupabase(TABLA);
+const { sbTraerTodo, sbInsert, sbInsertRet, sbUpdate, sbDelete } = crearHelpersSupabase(TABLA);
 
 const perfilesHelper = crearHelpersSupabase('perfiles_rrhh');
 const { sbGet: sbGetHist, sbInsert: sbInsertHist } = crearHelpersSupabase('arca_proveedores_acuerdos_historial');
@@ -43,12 +43,13 @@ export async function renderizarArcaProveedores(contenedor) {
   async function cargar() {
     try {
       const [regs, perfiles] = await Promise.all([
-        sbGet('order=razon_social.asc'),
+        sbTraerTodo('order=razon_social.asc,id.asc'),
         perfilesHelper.sbGet('puede_autorizar_facturas=eq.true&select=id,nombre&order=nombre.asc'),
       ]);
       registros = regs;
       autorizadores = perfiles;
-    } catch {
+    } catch (err) {
+      console.error(err);
       contenedor.innerHTML = errHtml('No se pudieron cargar los proveedores.');
       return;
     }
@@ -139,7 +140,9 @@ export async function renderizarArcaProveedores(contenedor) {
 
     let historial = [];
     if (reg) {
-      try { historial = await sbGetHist(`proveedor_id=eq.${reg.id}&order=modificado_en.desc`); } catch {}
+      // El historial es informativo: si falla, el modal se abre igual para poder editar.
+      try { historial = await sbGetHist(`proveedor_id=eq.${reg.id}&order=modificado_en.desc`); }
+      catch (err) { console.warn('ARCA Proveedores: no se pudo leer el historial de acuerdos', err); }
     }
 
     const modal = document.createElement('div');

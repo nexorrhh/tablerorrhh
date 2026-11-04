@@ -1,4 +1,6 @@
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { sbRpc, sbTraerTodo, sbContar, invalidarCache } from '../data/supabase-rest.js';
+import { htmlError } from './util.js';
 import { parsearExcelOT, guardarEnSupabase as guardarHorasOT, UMBRAL_HORAS_ANOMALAS } from './horas-ot.js';
 
 const HDR_JSON = {
@@ -435,7 +437,43 @@ function parsearExcel(wb) {
   return { mensual, detalle: detalleRows, tardanzas, periodo, empresa: empresaArchivo };
 }
 
+// Deja una sola fila por clave (la última, igual que cuando se subía en lotes y el
+// lote posterior pisaba al anterior). En una sola transacción, dos filas con la misma
+// clave en un upsert harían fallar toda la carga.
+function sinDuplicados(filas, clave) {
+  const m = new Map();
+  filas.forEach(f => m.set(clave(f), f));
+  return [...m.values()];
+}
+
 async function guardarEnSupabase(mensual, detalle, tardanzas, periodo, empresa) {
+  const legajosArchivo = [...new Set(detalle.map(d => d.legajo))];
+  const mensualU   = sinDuplicados(mensual, f => `${f.periodo}|${f.legajo}|${f.empresa}`);
+  const detalleP   = detalle.map(d => ({ ...d, periodo }));
+  const tardanzasU = sinDuplicados(tardanzas, t => `${t.legajo}|${t.fecha}|${t.tipo}|${t.empresa}`);
+
+  // Camino principal: todo en una transacción en la base (sql/cargas_atomicas.sql).
+  // Si falla, no se guarda nada y los datos anteriores quedan intactos.
+  try {
+    await sbRpc('rrhh_cargar_tango', {
+      p_periodo: periodo, p_empresa: empresa, p_legajos: legajosArchivo,
+      p_mensual: mensualU, p_detalle: detalleP, p_tardanzas: tardanzasU,
+    });
+    invalidarCache();
+    return;
+  } catch (e) {
+    // Solo se cae al método anterior si la función todavía no está instalada en
+    // Supabase (PGRST202 / 404). Cualquier otro error se informa tal cual.
+    if (!/PGRST202|Supabase 404/.test(e.message)) throw new Error(`Error al guardar: ${e.message}`);
+    console.warn('rrhh_cargar_tango no instalada; se usa la carga por lotes (no atómica).');
+  }
+  await guardarPorLotes(mensualU, detalleP, tardanzasU, periodo, empresa, legajosArchivo);
+  invalidarCache();
+}
+
+// Método anterior (por lotes). Queda solo como respaldo hasta que se instale
+// sql/cargas_atomicas.sql; ahora al menos verifica que los borrados funcionen.
+async function guardarPorLotes(mensual, detalle, tardanzas, periodo, empresa, legajosArchivo) {
   // UPSERT del resumen mensual: nunca borra datos existentes antes de confirmar
   // Si falla, los datos anteriores quedan intactos.
   // La clave incluye empresa: Cimomet y Co.mo.ing pueden tener el mismo número de legajo
@@ -452,14 +490,14 @@ async function guardarEnSupabase(mensual, detalle, tardanzas, periodo, empresa) 
 
   // Solo si el mensual fue ok, reemplazar el detalle de los legajos de este archivo — acotado
   // también por empresa, por la misma razón: no pisar el detalle de un legajo igual de la otra empresa.
-  const legajosArchivo = [...new Set(detalle.map(d => d.legajo))];
-  await fetch(`${SUPABASE_URL}/rest/v1/rrhh_horas_detalle?periodo=eq.${periodo}&empresa=eq.${empresa}&legajo=in.(${legajosArchivo.join(',')})`, {
+  const rDel = await fetch(`${SUPABASE_URL}/rest/v1/rrhh_horas_detalle?periodo=eq.${periodo}&empresa=eq.${empresa}&legajo=in.(${legajosArchivo.join(',')})`, {
     method: 'DELETE', headers: HDR_SB,
   });
+  if (!rDel.ok) throw new Error(`Error al reemplazar el detalle (HTTP ${rDel.status}); no se guardó el detalle nuevo.`);
 
   const BATCH = 500;
   for (let i = 0; i < detalle.length; i += BATCH) {
-    const lote = detalle.slice(i, i + BATCH).map(d => ({ ...d, periodo }));
+    const lote = detalle.slice(i, i + BATCH);
     const r = await fetch(`${SUPABASE_URL}/rest/v1/rrhh_horas_detalle`, {
       method: 'POST',
       headers: HDR_JSON,
@@ -470,9 +508,10 @@ async function guardarEnSupabase(mensual, detalle, tardanzas, periodo, empresa) 
 
   // Tardanzas/salidas anticipadas — mismo patrón: reemplazar por legajo+período+empresa
   if (tardanzas.length) {
-    await fetch(`${SUPABASE_URL}/rest/v1/rrhh_tardanzas_salidas?periodo=eq.${periodo}&empresa=eq.${empresa}&legajo=in.(${legajosArchivo.join(',')})`, {
+    const rDelT = await fetch(`${SUPABASE_URL}/rest/v1/rrhh_tardanzas_salidas?periodo=eq.${periodo}&empresa=eq.${empresa}&legajo=in.(${legajosArchivo.join(',')})`, {
       method: 'DELETE', headers: HDR_SB,
     });
+    if (!rDelT.ok) throw new Error(`Error al reemplazar tardanzas/salidas (HTTP ${rDelT.status}).`);
     for (let i = 0; i < tardanzas.length; i += BATCH) {
       const lote = tardanzas.slice(i, i + BATCH);
       const r = await fetch(`${SUPABASE_URL}/rest/v1/rrhh_tardanzas_salidas?on_conflict=legajo,fecha,tipo,empresa`, {
@@ -527,9 +566,13 @@ export async function renderizarPresentismoCarga(contenedor, alCargar) {
   async function renderEstadoCarga() {
     let rawHoras = [];
     try {
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/rrhh_horas_mensual?select=periodo,empresa`, { headers: HDR_SB });
-      rawHoras = r.ok ? await r.json() : [];
-    } catch { estadoCargaDiv.innerHTML = ''; return; }
+      // Paginado: la tabla ya pasa las 1000 filas y sin esto los meses nuevos no
+      // aparecían como "Cargado".
+      rawHoras = await sbTraerTodo('rrhh_horas_mensual?select=periodo,empresa&order=id.asc');
+    } catch (e) {
+      estadoCargaDiv.innerHTML = htmlError('No se pudo leer qué períodos están cargados.', e.message);
+      return;
+    }
 
     if (!rawHoras.length) { estadoCargaDiv.innerHTML = ''; return; }
 
@@ -594,12 +637,10 @@ export async function renderizarPresentismoCarga(contenedor, alCargar) {
         datosParseados = parsed;
 
         // Chequear si ya hay datos para ese período + empresa
-        const rEx = await fetch(
-          `${SUPABASE_URL}/rest/v1/rrhh_horas_mensual?periodo=eq.${parsed.periodo}&empresa=eq.${parsed.empresa}&select=legajo`,
-          { headers: HDR_SB }
-        );
-        const existentes = rEx.ok ? await rEx.json() : [];
-        mostrarPreviewTango(parsed, existentes.length > 0);
+        // Si la consulta falla, se corta acá con error: antes asumía "no hay datos" y no
+        // avisaba que la carga iba a reemplazar un mes ya cargado.
+        const cantExistentes = await sbContar(`rrhh_horas_mensual?periodo=eq.${parsed.periodo}&empresa=eq.${parsed.empresa}`);
+        mostrarPreviewTango(parsed, cantExistentes > 0);
       } else if (tipoActivo === 'capataz') {
         datosParseados = parsearExcelOT(wb);
         mostrarPreviewCapataz(datosParseados);

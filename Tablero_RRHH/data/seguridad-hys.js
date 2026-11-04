@@ -1,4 +1,4 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './fuentes.js';
+import { sbGet } from './supabase-rest.js';
 
 // Resultado de seguridad para Desempeño, calculado desde las evaluaciones mensuales que carga
 // Seguridad e Higiene en su propio tablero (tablero-hys → "Evaluación Preventiva"): así ni RRHH
@@ -7,8 +7,6 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from './fuentes.js';
 // Se lee de la vista v_hys_seguridad_mensual (ver sql/v_hys_seguridad_mensual.sql), que expone
 // solo legajo, empresa, mes, año y el promedio de cada mes — las tablas originales de HyS solo
 // las pueden leer usuarios logueados en tablero-hys.
-
-const HDR = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 
 // HyS califica de 1 (Malo) a 5 (Excelente); Desempeño usa 0-100 con los mismos 5 niveles
 // (Insuficiente/Escaso, Regular, Bueno, Muy bueno, Excelente), así que la traducción es lineal:
@@ -27,12 +25,10 @@ const claveMes = (anio, mes) => `${anio}-${String(mes).padStart(2, '0')}`;
 // manual de siempre, así que nunca bloquea una evaluación.
 export async function obtenerSeguridadHyS(legajo, empresa, desde, hasta) {
   try {
-    const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/v_hys_seguridad_mensual?legajo=eq.${encodeURIComponent(legajo)}&empresa=eq.${encodeURIComponent(empresa)}&select=anio,mes,promedio_general`,
-      { headers: HDR },
-    );
-    if (!r.ok) return null;
-    const meses = (await r.json())
+    // Filtrado por una persona: a lo sumo unas decenas de meses, no hace falta paginar.
+    const meses = (await sbGet(
+      `v_hys_seguridad_mensual?legajo=eq.${encodeURIComponent(legajo)}&empresa=eq.${encodeURIComponent(empresa)}&select=anio,mes,promedio_general`,
+    ))
       .filter(f => f.promedio_general != null)
       .map(f => ({ clave: claveMes(f.anio, f.mes), promedio: +f.promedio_general }))
       .filter(f => f.clave >= desde && f.clave <= hasta)
@@ -46,7 +42,9 @@ export async function obtenerSeguridadHyS(legajo, empresa, desde, hasta) {
       primerMes: meses[0].clave,
       ultimoMes: meses[meses.length - 1].clave,
     };
-  } catch {
+  } catch (e) {
+    // Fallback intencional (ver arriba): sin dato de HyS se vuelve a la carga manual.
+    console.warn('Seguridad HyS: no se pudo leer v_hys_seguridad_mensual', e);
     return null;
   }
 }

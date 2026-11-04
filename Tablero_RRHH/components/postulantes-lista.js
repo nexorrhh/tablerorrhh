@@ -1,15 +1,11 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY, SHEET_ID_POSTULANTES, SHEET_NOMBRE_POSTULANTES } from '../data/fuentes.js';
+import { SHEET_ID_POSTULANTES, SHEET_NOMBRE_POSTULANTES } from '../data/fuentes.js';
+import { sbTraerTodo, sbPost } from '../data/supabase-rest.js';
+import { htmlError } from './util.js';
 import { obtenerUsuario } from '../data/usuario-activo.js';
 import { cerrarConAnimacion } from './modal-animado.js';
 
 const GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID_POSTULANTES}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(SHEET_NOMBRE_POSTULANTES)}`;
 const ADMIN_EMAIL = 'cimolay47@gmail.com';
-
-const HDR = {
-  'Content-Type': 'application/json',
-  'apikey': SUPABASE_ANON_KEY,
-  'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-};
 
 // ── Google Sheets parsing ────────────────────────────────────────────────────
 
@@ -114,27 +110,8 @@ function agruparPorEmail(postulantes) {
 // Paginado: el servidor corta cada consulta en 1000 filas sin avisar, y la tabla ya las
 // superó — los revisados que quedaban afuera volvían a aparecer acá como postulantes nuevos.
 async function obtenerEstadosPreseleccionados() {
-  const PAGE = 1000;
-  const mapa = new Map();
-  for (let offset = 0; ; offset += PAGE) {
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/preseleccionados?select=marca_temporal,estado&order=id.asc&limit=${PAGE}&offset=${offset}`,
-      { headers: HDR }
-    );
-    if (!res.ok) throw new Error('No se pudieron leer los revisados: HTTP ' + res.status);
-    const filas = await res.json();
-    filas.forEach(d => mapa.set(d.marca_temporal, d.estado));
-    if (filas.length < PAGE) return mapa;
-  }
-}
-
-async function sbPost(path, body) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    method: 'POST',
-    headers: { ...HDR, 'Prefer': 'return=minimal' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(await res.text());
+  const filas = await sbTraerTodo('preseleccionados?select=marca_temporal,estado&order=id.asc');
+  return new Map(filas.map(d => [d.marca_temporal, d.estado]));
 }
 
 // ── Componente ───────────────────────────────────────────────────────────────
@@ -153,11 +130,7 @@ export async function renderizarPostulantesLista(contenedor) {
     items         = agruparPorEmail(postulantes);
     estadosPresel = estadosMap;
   } catch (e) {
-    contenedor.innerHTML = `
-      <div class="estado-vacio">
-        <h3 class="estado-vacio__titulo">Error al cargar</h3>
-        <p class="estado-vacio__texto">No se pudo obtener la lista de postulantes. Verificá que la planilla sea accesible.</p>
-      </div>`;
+    contenedor.innerHTML = htmlError('No se pudo obtener la lista de postulantes. Verificá que la planilla sea accesible.', e.message);
     return;
   }
 

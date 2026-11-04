@@ -1,7 +1,5 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
-
-const HDR = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
-const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+import { sbTraerTodoCache } from '../data/supabase-rest.js';
+import { MESES, htmlError } from './util.js';
 
 let graficosActivos = [];
 
@@ -21,15 +19,14 @@ export async function renderizarPresentismoResumen(contenedor, alIrACarga) {
 
   let periodos = [];
   try {
-    const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/rrhh_horas_mensual?select=periodo&order=periodo.desc`,
-      { headers: HDR }
-    );
-    if (r.ok) {
-      const rows = await r.json();
-      periodos = [...new Set(rows.map(r => r.periodo))];
-    }
-  } catch {}
+    // Paginado completo: con más de 1000 filas en la tabla, un fetch simple cortaba y los
+    // períodos más viejos no aparecían en el selector.
+    const rows = await sbTraerTodoCache('rrhh_horas_mensual?select=periodo&order=periodo.desc,id.asc');
+    periodos = [...new Set(rows.map(r => r.periodo))];
+  } catch (e) {
+    contenedor.innerHTML = htmlError('No se pudieron cargar los períodos de horas.', e.message);
+    return;
+  }
 
   if (!periodos.length) {
     contenedor.innerHTML = `
@@ -75,12 +72,11 @@ export async function renderizarPresentismoResumen(contenedor, alIrACarga) {
 
     let datos = [];
     try {
-      const r = await fetch(
-        `${SUPABASE_URL}/rest/v1/rrhh_horas_mensual?periodo=eq.${periodoActivo}&order=apellido.asc`,
-        { headers: HDR }
-      );
-      if (r.ok) datos = await r.json();
-    } catch {}
+      datos = await sbTraerTodoCache(`rrhh_horas_mensual?periodo=eq.${periodoActivo}&order=apellido.asc,id.asc`);
+    } catch (e) {
+      div.innerHTML = htmlError('No se pudieron cargar los datos del período.', e.message);
+      return;
+    }
 
     if (!datos.length) {
       div.innerHTML = '<div class="pres__vacio">Sin datos para este período.</div>';

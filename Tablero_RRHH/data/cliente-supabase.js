@@ -1,22 +1,10 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './fuentes.js';
+import { sbTraerTodo } from './supabase-rest.js';
 
-// Helper mínimo para hacer GET a una tabla de Supabase via REST.
-// No depende de la librería supabase-js (sin npm); usa fetch directo.
-// Si en el futuro se quiere agregar supabase-js vía CDN, este helper se reemplaza.
+// Helper mínimo para leer una tabla completa de Supabase via REST.
+// Usa sbTraerTodo para no quedar cortado en 1000 filas (límite silencioso de PostgREST)
+// y para que un fallo lance error en vez de devolver datos parciales.
+// No se agrega order= porque la tabla es genérica y no sabemos si tiene columna `id`.
 
 export async function obtenerTabla(tabla, columnas = '*') {
-  const url = `${SUPABASE_URL}/rest/v1/${tabla}?select=${columnas}`;
-
-  const respuesta = await fetch(url, {
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-    },
-  });
-
-  if (!respuesta.ok) {
-    throw new Error(`Supabase: error ${respuesta.status} al leer tabla "${tabla}"`);
-  }
-
-  return respuesta.json();
+  return sbTraerTodo(`${tabla}?select=${columnas}`);
 }

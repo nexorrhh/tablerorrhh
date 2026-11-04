@@ -15,45 +15,9 @@ import { obtenerUsuario, cerrarSesion } from './data/usuario-activo.js';
 import { inicializarTema }          from './data/tema-modo.js';
 import { renderizarPanel }          from './components/panel-inicio.js';
 import { crearBotonAccion }         from './components/boton-accion.js';
-import { renderizarPlantelResumen }  from './components/plantel-resumen.js';
-import { renderizarPlantelListado }  from './components/plantel-listado.js';
-import { renderizarSabadosResumen }  from './components/sabados-resumen.js';
-import { renderizarSabadosMarcar }   from './components/sabados-marcar.js';
-import { renderizarBusquedas }               from './components/busquedas.js';
-import { renderizarBusquedasActivas }        from './components/busquedas-activas.js';
-import { renderizarBusquedasHistorial }      from './components/busquedas-historial.js';
-import { renderizarPostulantesLista }       from './components/postulantes-lista.js';
-import { renderizarPostulantesPreseleccion } from './components/postulantes-preseleccion.js';
-import { renderizarPostulantesCandidatos }  from './components/postulantes-candidatos.js';
-import { renderizarPostulantesRechazados }  from './components/postulantes-rechazados.js';
-import { renderizarVencimientosResumen }           from './components/vencimientos-resumen.js';
-import { renderizarVencimientosInstitucionalTodo } from './components/vencimientos-institucional-todo.js';
-import { renderizarVencimientosPagos }             from './components/vencimientos-pagos.js';
-import { renderizarArcaProveedores }           from './components/arca-proveedores.js';
-import { renderizarArcaImportar }              from './components/arca-importar.js';
-import { renderizarArcaAutorizar }             from './components/arca-autorizar.js';
-import { renderizarArcaSeguimiento }           from './components/arca-seguimiento.js';
-import { renderizarCumpleanosAntiguedad }  from './components/cumpleanos-antiguedad.js';
-import { renderizarPlantelParametrizacion } from './components/plantel-parametrizacion.js';
-import { renderizarPlantelImportar } from './components/plantel-importar.js';
-import { renderizarPresentismoResumen }       from './components/presentismo-resumen.js';
-import { renderizarPresentismoPersonas }      from './components/presentismo-personas.js';
-import { renderizarPresentismoFicha }         from './components/presentismo-ficha.js';
-import { renderizarPresentismoCarga }         from './components/presentismo-carga.js';
-import { renderizarPresentismoIndicadores }   from './components/presentismo-indicadores.js';
-import { renderizarPresentismoNovedades }     from './components/presentismo-novedades.js';
-import { renderizarDesempenoEvaluaciones }    from './components/desempeno-evaluaciones.js';
-import { renderizarDesempenoIndicadores }     from './components/desempeno-indicadores.js';
-import { renderizarDesempenoParametrizacion } from './components/desempeno-parametrizacion.js';
-import { renderizarPresentismoParametrizacion } from './components/presentismo-parametrizacion.js';
-import { renderizarHorasOT }                  from './components/horas-ot.js';
-import { renderizarHorasCruce }               from './components/horas-cruce.js';
-import { renderizarPermisosAutorizacion }     from './components/permisos-autorizacion.js';
-import { renderizarPermisosAutorizados }      from './components/permisos-autorizados.js';
-import { renderizarPermisosIndicadores }      from './components/permisos-indicadores.js';
-import { renderizarPermisosAutorizadores }    from './components/permisos-autorizadores.js';
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './data/fuentes.js';
+import { sbGet, sbContar } from './data/supabase-rest.js';
+import { htmlError } from './components/util.js';
 import { nexoCall } from './data/nexo-permisos.js';
 
 // ── Definición de módulos del sidebar ────────────────────────────────────────
@@ -92,36 +56,35 @@ function modConPermisos(mod) {
 
 // ── Badges: pendientes por módulo ────────────────────────────────────────────
 async function actualizarBadges() {
-  const HDR_SB = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
   const fechaLimite = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const hoyISO      = new Date().toISOString().slice(0, 10);
 
-  const [rPost, rContr, rLic, rInstBadge, rPagos, rPermCim, rPermCom] = await Promise.allSettled([
-    fetch(`${SUPABASE_URL}/rest/v1/solicitudes_personal?estado=eq.pendiente&select=id`, { headers: HDR_SB }),
-    fetch(`${SUPABASE_URL}/rest/v1/contratos_vencimiento?fecha_vencimiento=lte.${fechaLimite}&select=id`, { headers: HDR_SB }),
-    fetch(`${SUPABASE_URL}/rest/v1/licencias_vencimiento?fecha_vencimiento=lte.${fechaLimite}&select=id`, { headers: HDR_SB }),
-    fetch(`${SUPABASE_URL}/rest/v1/vencimientos_institucionales?select=fecha_vencimiento,preaviso_meses`, { headers: HDR_SB }),
+  // sbContar cuenta en el servidor sin descargar las filas. allSettled: si un contador
+  // falla, ese badge queda en 0 y el resto se muestra igual (son solo avisos).
+  const [rPost, rContr, rLic, rInst, rPagos, rPermCim, rPermCom] = await Promise.allSettled([
+    sbContar('solicitudes_personal?estado=eq.pendiente'),
+    sbContar(`contratos_vencimiento?fecha_vencimiento=lte.${fechaLimite}`),
+    sbContar(`licencias_vencimiento?fecha_vencimiento=lte.${fechaLimite}`),
+    sbGet('vencimientos_institucionales?select=fecha_vencimiento,preaviso_meses'),
     // Los pagos solo notifican si ya vencieron o vencen hoy (no con anticipación como el resto).
-    fetch(`${SUPABASE_URL}/rest/v1/pagos_vencimiento?pagado=eq.false&omitido=eq.false&necesita_revision=eq.false&fecha_vencimiento=lte.${hoyISO}&select=id`, { headers: HDR_SB }),
+    sbContar(`pagos_vencimiento?pagado=eq.false&omitido=eq.false&necesita_revision=eq.false&fecha_vencimiento=lte.${hoyISO}`),
     // Permisos: no es una tabla de este Supabase — es la Edge Function de Nexo RRHH,
     // un tenant por empresa (ver data/nexo-permisos.js).
     nexoCall('cimomet', 'get_permisos_pendientes', {}),
     nexoCall('comoing', 'get_permisos_pendientes', {}),
   ]);
 
-  async function count(settled) {
-    if (settled.status !== 'fulfilled' || !settled.value.ok) return 0;
-    return (await settled.value.json()).length;
-  }
-
-  const [nPost, nContr, nLic, nPagos] = await Promise.all([count(rPost), count(rContr), count(rLic), count(rPagos)]);
+  const valor = (r) => {
+    if (r.status === 'fulfilled') return r.value;
+    console.warn('Badge sin dato:', r.reason?.message || r.reason);
+    return 0;
+  };
 
   let nInst = 0;
-  if (rInstBadge.status === 'fulfilled' && rInstBadge.value.ok) {
-    const instItems = await rInstBadge.value.json();
+  if (rInst.status === 'fulfilled') {
     const hoyB = new Date(); hoyB.setHours(0, 0, 0, 0);
-    nInst = instItems.filter(r => {
-      const d = Math.round((new Date(r.fecha_vencimiento+'T00:00:00') - hoyB) / 86400000);
+    nInst = rInst.value.filter(r => {
+      const d = Math.round((new Date(r.fecha_vencimiento + 'T00:00:00') - hoyB) / 86400000);
       return d <= r.preaviso_meses * 30;
     }).length;
   }
@@ -129,7 +92,7 @@ async function actualizarBadges() {
   const nPerm = (rPermCim.status === 'fulfilled' ? (rPermCim.value.permisos || []).length : 0)
               + (rPermCom.status === 'fulfilled' ? (rPermCom.value.permisos || []).length : 0);
 
-  badges = { ...badges, postulantes: nPost, vencimientos: nContr + nLic + nInst + nPagos, permisos: nPerm };
+  badges = { ...badges, postulantes: valor(rPost), vencimientos: valor(rContr) + valor(rLic) + nInst + valor(rPagos), permisos: nPerm };
 }
 
 function refrescarNav() {
@@ -209,6 +172,51 @@ function animarEntradaContenido(contenedor) {
 // siendo la generación más nueva pedida.
 let renderGen = 0;
 
+// ── Registro de pantallas ────────────────────────────────────────────────────
+// tipo (config/navegacion.js) → qué módulo cargar y con qué argumentos. Se importa
+// recién al abrir la pantalla (import dinámico): la app arranca sin descargar los ~40
+// componentes, y agregar una pantalla nueva es sumar una línea acá, no otro else-if.
+const refrescarBadges = async () => { await actualizarBadges(); refrescarNav(); };
+const PANTALLAS = {
+  'plantel-resumen':         { m: () => import('./components/plantel-resumen.js'),          f: 'renderizarPlantelResumen' },
+  'plantel-listado':         { m: () => import('./components/plantel-listado.js'),          f: 'renderizarPlantelListado' },
+  'plantel-parametrizacion': { m: () => import('./components/plantel-parametrizacion.js'),  f: 'renderizarPlantelParametrizacion' },
+  'plantel-importar':        { m: () => import('./components/plantel-importar.js'),         f: 'renderizarPlantelImportar' },
+  'sabados-resumen':         { m: () => import('./components/sabados-resumen.js'),          f: 'renderizarSabadosResumen' },
+  'sabados-marcar':          { m: () => import('./components/sabados-marcar.js'),           f: 'renderizarSabadosMarcar' },
+  'busquedas':               { m: () => import('./components/busquedas.js'),                f: 'renderizarBusquedas', args: () => [refrescarBadges] },
+  'busquedas-activas':       { m: () => import('./components/busquedas-activas.js'),        f: 'renderizarBusquedasActivas' },
+  'busquedas-historial':     { m: () => import('./components/busquedas-historial.js'),      f: 'renderizarBusquedasHistorial' },
+  'post-lista':              { m: () => import('./components/postulantes-lista.js'),        f: 'renderizarPostulantesLista' },
+  'post-preseleccion':       { m: () => import('./components/postulantes-preseleccion.js'), f: 'renderizarPostulantesPreseleccion' },
+  'post-candidatos':         { m: () => import('./components/postulantes-candidatos.js'),   f: 'renderizarPostulantesCandidatos' },
+  'post-rechazados':         { m: () => import('./components/postulantes-rechazados.js'),   f: 'renderizarPostulantesRechazados' },
+  'venc-resumen':            { m: () => import('./components/vencimientos-resumen.js'),     f: 'renderizarVencimientosResumen' },
+  'venc-institucional-todo': { m: () => import('./components/vencimientos-institucional-todo.js'), f: 'renderizarVencimientosInstitucionalTodo' },
+  'venc-pagos':              { m: () => import('./components/vencimientos-pagos.js'),       f: 'renderizarVencimientosPagos' },
+  'arca-proveedores':        { m: () => import('./components/arca-proveedores.js'),         f: 'renderizarArcaProveedores' },
+  'arca-importar':           { m: () => import('./components/arca-importar.js'),            f: 'renderizarArcaImportar' },
+  'arca-autorizar':          { m: () => import('./components/arca-autorizar.js'),           f: 'renderizarArcaAutorizar' },
+  'arca-seguimiento':        { m: () => import('./components/arca-seguimiento.js'),         f: 'renderizarArcaSeguimiento' },
+  'cumpleanos-antiguedad':   { m: () => import('./components/cumpleanos-antiguedad.js'),    f: 'renderizarCumpleanosAntiguedad' },
+  'pres-resumen':            { m: () => import('./components/presentismo-resumen.js'),      f: 'renderizarPresentismoResumen', args: () => [() => cambiarSubmodulo('cargar')] },
+  'pres-personas':           { m: () => import('./components/presentismo-personas.js'),     f: 'renderizarPresentismoPersonas' },
+  'pres-ficha':              { m: () => import('./components/presentismo-ficha.js'),        f: 'renderizarPresentismoFicha' },
+  'pres-carga':              { m: () => import('./components/presentismo-carga.js'),        f: 'renderizarPresentismoCarga', args: () => [() => cambiarSubmodulo('resumen')] },
+  'pres-indicadores':        { m: () => import('./components/presentismo-indicadores.js'),  f: 'renderizarPresentismoIndicadores' },
+  'pres-novedades':          { m: () => import('./components/presentismo-novedades.js'),    f: 'renderizarPresentismoNovedades' },
+  'pres-horas-ot':           { m: () => import('./components/horas-ot.js'),                 f: 'renderizarHorasOT' },
+  'pres-horas-cruce':        { m: () => import('./components/horas-cruce.js'),              f: 'renderizarHorasCruce' },
+  'pres-parametrizacion':    { m: () => import('./components/presentismo-parametrizacion.js'), f: 'renderizarPresentismoParametrizacion' },
+  'desem-evaluaciones':      { m: () => import('./components/desempeno-evaluaciones.js'),   f: 'renderizarDesempenoEvaluaciones' },
+  'desem-indicadores':       { m: () => import('./components/desempeno-indicadores.js'),    f: 'renderizarDesempenoIndicadores' },
+  'desem-parametrizacion':   { m: () => import('./components/desempeno-parametrizacion.js'), f: 'renderizarDesempenoParametrizacion' },
+  'perm-autorizacion':       { m: () => import('./components/permisos-autorizacion.js'),    f: 'renderizarPermisosAutorizacion', args: () => [refrescarBadges] },
+  'perm-autorizados':        { m: () => import('./components/permisos-autorizados.js'),     f: 'renderizarPermisosAutorizados' },
+  'perm-indicadores':        { m: () => import('./components/permisos-indicadores.js'),     f: 'renderizarPermisosIndicadores' },
+  'perm-autorizadores':      { m: () => import('./components/permisos-autorizadores.js'),   f: 'renderizarPermisosAutorizadores' },
+};
+
 // ── Renderizar contenido según módulo y sub-módulo activos ────────────────────
 async function renderizarContenido() {
   const miGen = ++renderGen;
@@ -231,7 +239,12 @@ async function renderizarContenido() {
   const contenedor = document.createElement('div');
 
   if (modActivo === 'panel') {
-    await renderizarPanel(contenedor, cambiarModulo);
+    try {
+      await renderizarPanel(contenedor, cambiarModulo);
+    } catch (e) {
+      console.error('Panel', e);
+      contenedor.innerHTML = htmlError('No se pudo abrir el panel.', e.message);
+    }
     volcarContenido();
     return;
   }
@@ -240,90 +253,21 @@ async function renderizarContenido() {
   const submod = mod?.submodulos?.find(s => s.id === submodActivo);
   if (!submod) { volcarContenido(); return; }
 
-  if (submod.tipo === 'botones') {
-    mostrarBotones(submod.secciones, contenedor);
-  } else if (submod.tipo === 'plantel-resumen') {
-    await renderizarPlantelResumen(contenedor);
-  } else if (submod.tipo === 'plantel-listado') {
-    await renderizarPlantelListado(contenedor);
-  } else if (submod.tipo === 'sabados-resumen') {
-    await renderizarSabadosResumen(contenedor);
-  } else if (submod.tipo === 'sabados-marcar') {
-    await renderizarSabadosMarcar(contenedor);
-  } else if (submod.tipo === 'busquedas') {
-    await renderizarBusquedas(contenedor, async () => {
-      await actualizarBadges();
-      refrescarNav();
-    });
-  } else if (submod.tipo === 'busquedas-activas') {
-    await renderizarBusquedasActivas(contenedor);
-  } else if (submod.tipo === 'post-lista') {
-    await renderizarPostulantesLista(contenedor);
-  } else if (submod.tipo === 'post-preseleccion') {
-    await renderizarPostulantesPreseleccion(contenedor);
-  } else if (submod.tipo === 'post-candidatos') {
-    await renderizarPostulantesCandidatos(contenedor);
-  } else if (submod.tipo === 'busquedas-historial') {
-    await renderizarBusquedasHistorial(contenedor);
-  } else if (submod.tipo === 'post-rechazados') {
-    await renderizarPostulantesRechazados(contenedor);
-  } else if (submod.tipo === 'venc-resumen') {
-    await renderizarVencimientosResumen(contenedor);
-  } else if (submod.tipo === 'venc-institucional-todo') {
-    await renderizarVencimientosInstitucionalTodo(contenedor);
-  } else if (submod.tipo === 'venc-pagos') {
-    await renderizarVencimientosPagos(contenedor);
-  } else if (submod.tipo === 'arca-proveedores') {
-    await renderizarArcaProveedores(contenedor);
-  } else if (submod.tipo === 'arca-importar') {
-    await renderizarArcaImportar(contenedor);
-  } else if (submod.tipo === 'arca-autorizar') {
-    await renderizarArcaAutorizar(contenedor);
-  } else if (submod.tipo === 'arca-seguimiento') {
-    await renderizarArcaSeguimiento(contenedor);
-  } else if (submod.tipo === 'cumpleanos-antiguedad') {
-    await renderizarCumpleanosAntiguedad(contenedor);
-  } else if (submod.tipo === 'plantel-parametrizacion') {
-    await renderizarPlantelParametrizacion(contenedor);
-  } else if (submod.tipo === 'plantel-importar') {
-    await renderizarPlantelImportar(contenedor);
-  } else if (submod.tipo === 'pres-resumen') {
-    await renderizarPresentismoResumen(contenedor, () => cambiarSubmodulo('cargar'));
-  } else if (submod.tipo === 'pres-personas') {
-    await renderizarPresentismoPersonas(contenedor);
-  } else if (submod.tipo === 'pres-ficha') {
-    await renderizarPresentismoFicha(contenedor);
-  } else if (submod.tipo === 'pres-carga') {
-    await renderizarPresentismoCarga(contenedor, () => cambiarSubmodulo('resumen'));
-  } else if (submod.tipo === 'pres-indicadores') {
-    await renderizarPresentismoIndicadores(contenedor);
-  } else if (submod.tipo === 'pres-novedades') {
-    await renderizarPresentismoNovedades(contenedor);
-  } else if (submod.tipo === 'desem-evaluaciones') {
-    await renderizarDesempenoEvaluaciones(contenedor);
-  } else if (submod.tipo === 'desem-indicadores') {
-    await renderizarDesempenoIndicadores(contenedor);
-  } else if (submod.tipo === 'desem-parametrizacion') {
-    await renderizarDesempenoParametrizacion(contenedor);
-  } else if (submod.tipo === 'pres-horas-ot') {
-    await renderizarHorasOT(contenedor);
-  } else if (submod.tipo === 'pres-horas-cruce') {
-    await renderizarHorasCruce(contenedor);
-  } else if (submod.tipo === 'pres-parametrizacion') {
-    await renderizarPresentismoParametrizacion(contenedor);
-  } else if (submod.tipo === 'perm-autorizacion') {
-    await renderizarPermisosAutorizacion(contenedor, async () => {
-      await actualizarBadges();
-      refrescarNav();
-    });
-  } else if (submod.tipo === 'perm-autorizados') {
-    await renderizarPermisosAutorizados(contenedor);
-  } else if (submod.tipo === 'perm-indicadores') {
-    await renderizarPermisosIndicadores(contenedor);
-  } else if (submod.tipo === 'perm-autorizadores') {
-    await renderizarPermisosAutorizadores(contenedor);
-  } else {
-    mostrarPlaceholder(submod.mensaje, contenedor);
+  // Si una pantalla falla (red, dato inesperado, error de código) se muestra el error en
+  // vez de dejar "Cargando…" para siempre; el resto del tablero sigue funcionando.
+  try {
+    const pantalla = PANTALLAS[submod.tipo];
+    if (submod.tipo === 'botones') {
+      mostrarBotones(submod.secciones, contenedor);
+    } else if (pantalla) {
+      const modulo = await pantalla.m();
+      await modulo[pantalla.f](contenedor, ...(pantalla.args ? pantalla.args() : []));
+    } else {
+      mostrarPlaceholder(submod.mensaje, contenedor);
+    }
+  } catch (e) {
+    console.error(`Pantalla "${submod.tipo}"`, e);
+    contenedor.innerHTML = htmlError('No se pudo abrir esta pantalla.', e.message);
   }
 
   volcarContenido();

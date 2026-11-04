@@ -1,41 +1,5 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
-
-const HDR = {
-  'Content-Type': 'application/json',
-  'apikey': SUPABASE_ANON_KEY,
-  'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-};
-
-// Paginado: el servidor corta cada consulta en 1000 filas sin avisar (los rechazados ya
-// rondan las 800). El path tiene que traer un "order" estable para que las páginas no se pisen.
-async function sbGet(path) {
-  const PAGE = 1000;
-  let out = [];
-  for (let offset = 0; ; offset += PAGE) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}&limit=${PAGE}&offset=${offset}`, { headers: HDR });
-    if (!res.ok) throw new Error(await res.text());
-    const filas = await res.json();
-    out = out.concat(filas);
-    if (filas.length < PAGE) return out;
-  }
-}
-
-async function sbPatch(path, body) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    method: 'PATCH',
-    headers: { ...HDR, 'Prefer': 'return=minimal' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(await res.text());
-}
-
-async function sbDelete(path) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    method: 'DELETE',
-    headers: { ...HDR, 'Prefer': 'return=minimal' },
-  });
-  if (!res.ok) throw new Error(await res.text());
-}
+import { sbTraerTodo, sbPatch, sbDelete } from '../data/supabase-rest.js';
+import { htmlError } from './util.js';
 
 function fmtFecha(f) {
   if (!f) return '—';
@@ -47,13 +11,10 @@ export async function renderizarPostulantesRechazados(contenedor) {
 
   let lista = [];
   try {
-    lista = await sbGet('preseleccionados?select=*&estado=eq.descartado&order=created_at.desc,id.asc');
-  } catch (_) {
-    contenedor.innerHTML = `
-      <div class="estado-vacio">
-        <h3 class="estado-vacio__titulo">Error al cargar</h3>
-        <p class="estado-vacio__texto">No se pudieron obtener los rechazados.</p>
-      </div>`;
+    // Paginado (sbTraerTodo): los rechazados ya rondan las 800 filas y PostgREST corta en 1000.
+    lista = await sbTraerTodo('preseleccionados?select=*&estado=eq.descartado&order=created_at.desc,id.asc');
+  } catch (err) {
+    contenedor.innerHTML = htmlError('No se pudieron obtener los rechazados.', err.message);
     return;
   }
 

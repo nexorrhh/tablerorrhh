@@ -1,9 +1,8 @@
 import { obtenerTabla } from '../data/cliente-supabase.js';
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { sbTraerTodoCache } from '../data/supabase-rest.js';
 import { obtenerClasificacionPuestos, tipoPuesto } from '../data/clasificacion-puestos.js';
 import { crearOrdenTabla } from './tabla-ordenable.js';
 
-const HDR = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 const TIPO_LABEL = { mensual: 'Mensual', quincenal: 'Quincenal', sin_asignar: 'Sin asignar' };
 
 const COLOR_GREEN  = '#16a34a';
@@ -26,18 +25,18 @@ export async function renderizarSabadosResumen(contenedor) {
   let fechas, personas;
   const empMap = new Map(); // legajo → tipo ('mensual' | 'quincenal' | 'sin_asignar')
   try {
-    const [fechasRes, personasRes, empRes, mapaClasif] = await Promise.all([
+    const [fechasRes, personasRes, empleadosPuesto, mapaClasif] = await Promise.all([
       obtenerTabla('v_resumen_fecha'),
       obtenerTabla('v_cumplimiento_persona'),
-      fetch(`${SUPABASE_URL}/rest/v1/empleados?select=legajo,desc_puesto`, { headers: HDR }),
+      // Fallback intencional: sin plantel el resumen se muestra igual, solo que todos quedan
+      // "Sin asignar" en el filtro por tipo de puesto.
+      sbTraerTodoCache('empleados?select=legajo,desc_puesto&order=id.asc')
+        .catch(e => { console.warn('Sábados: no se pudo leer el plantel para clasificar puestos', e); return []; }),
       obtenerClasificacionPuestos(),
     ]);
     fechas = fechasRes;
     personas = personasRes;
-    if (empRes.ok) {
-      const empleadosPuesto = await empRes.json();
-      empleadosPuesto.forEach(emp => empMap.set(String(emp.legajo), tipoPuesto(emp.desc_puesto, mapaClasif)));
-    }
+    empleadosPuesto.forEach(emp => empMap.set(String(emp.legajo), tipoPuesto(emp.desc_puesto, mapaClasif)));
   } catch (e) {
     contenedor.innerHTML = `
       <div class="estado-vacio">

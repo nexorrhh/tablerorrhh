@@ -9,7 +9,8 @@
 // hay ningún dato en el sistema que la alimente. El día que lo haya, se puede reintegrar
 // sumándola de nuevo a calcularDesempeno() y bajando el peso de "evaluación del superior".
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { sbGet, sbUpsert } from '../data/supabase-rest.js';
+import { htmlError } from './util.js';
 import { obtenerClasificacionPuestos, tipoPuesto, normPuesto } from '../data/clasificacion-puestos.js';
 import { obtenerUsuario } from '../data/usuario-activo.js';
 import { obtenerConfigDesempeno, obtenerConfigPorPuesto, resolverConfigPersona, CONFIG_DEFAULT, REPROCESOS_LABEL_DEFAULT } from '../data/desempeno-config.js';
@@ -19,9 +20,6 @@ import { mejorarSelectsEscala } from './selector-escala.js';
 import { generarInformeAnualPDF } from './desempeno-informe.js';
 import { obtenerSeguridadHyS } from '../data/seguridad-hys.js';
 import { campoSeguridadHyS, nivelMasCercano } from './campo-seguridad-hys.js';
-
-const HDR = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
-const HDR_JSON = { ...HDR, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' };
 
 export const EMP_LABEL  = { CIMOMET: 'Cimomet', COMOING: 'Co.mo.ing' };
 export const TIPO_LABEL = { mensual: 'Mensual', quincenal: 'Quincenal' };
@@ -202,19 +200,19 @@ export async function montarEvaluacionAnual(formEl, persona, ctx) {
 
   const desde = `${anio}-01-01`, hasta = `${anio}-12-01`;
   try {
-    const [rMen, rTard, rEval, seguridadHyS] = await Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/rrhh_horas_mensual?legajo=eq.${persona.legajo}&empresa=eq.${persona.empresa}&periodo=gte.${desde}&periodo=lte.${hasta}&select=dias_ausentes_nojust`, { headers: HDR }),
-      fetch(`${SUPABASE_URL}/rest/v1/rrhh_tardanzas_salidas?legajo=eq.${persona.legajo}&empresa=eq.${persona.empresa}&periodo=gte.${desde}&periodo=lte.${hasta}&tipo=in.(tarde,temprano)&select=id`, { headers: HDR }),
-      fetch(`${SUPABASE_URL}/rest/v1/iso_evaluaciones_desempeno?legajo=eq.${persona.legajo}&empresa=eq.${persona.empresa}&anio=eq.${anio}&select=*`, { headers: HDR }),
+    // Antes un fallo acá se tomaba como "0 ausencias / 0 tardanzas" y el puntaje salía inflado
+    // sin aviso; ahora cualquier error corta y se muestra.
+    const [filasMen, filasTard, existentes, seguridadHyS] = await Promise.all([
+      sbGet(`rrhh_horas_mensual?legajo=eq.${persona.legajo}&empresa=eq.${persona.empresa}&periodo=gte.${desde}&periodo=lte.${hasta}&select=dias_ausentes_nojust`),
+      sbGet(`rrhh_tardanzas_salidas?legajo=eq.${persona.legajo}&empresa=eq.${persona.empresa}&periodo=gte.${desde}&periodo=lte.${hasta}&tipo=in.(tarde,temprano)&select=id`),
+      sbGet(`iso_evaluaciones_desempeno?legajo=eq.${persona.legajo}&empresa=eq.${persona.empresa}&anio=eq.${anio}&select=*`),
       obtenerSeguridadHyS(persona.legajo, persona.empresa, `${anio}-01`, `${anio}-12`),
     ]);
-    const filasMen = rMen.ok ? await rMen.json() : [];
     const ausentismo_dias = filasMen.reduce((s, f) => s + (+f.dias_ausentes_nojust || 0), 0);
-    const tardanzas_cant = rTard.ok ? (await rTard.json()).length : 0;
-    const existentes = rEval.ok ? await rEval.json() : [];
+    const tardanzas_cant = filasTard.length;
     renderForm({ persona, tipo, anio, ausentismo_dias, tardanzas_cant, previa: existentes[0] || null, seguridadHyS });
   } catch (e) {
-    formEl.innerHTML = `<div class="pres__vacio">Error al cargar los datos: ${eP(e.message)}</div>`;
+    formEl.innerHTML = htmlError('Error al cargar los datos.', e.message);
   }
 
   function renderForm({ persona, tipo, anio, ausentismo_dias, tardanzas_cant, previa, seguridadHyS }) {
@@ -426,10 +424,7 @@ export async function montarEvaluacionAnual(formEl, persona, ctx) {
           fecha_evaluacion: new Date().toISOString().slice(0, 10),
           actualizado_en: new Date().toISOString(),
         };
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/iso_evaluaciones_desempeno?on_conflict=legajo,empresa,anio`, {
-          method: 'POST', headers: HDR_JSON, body: JSON.stringify(body),
-        });
-        if (!r.ok) throw new Error(`Supabase: error ${r.status}`);
+        await sbUpsert('iso_evaluaciones_desempeno?on_conflict=legajo,empresa,anio', body);
         // No se vuelve a cargar todo el formulario acá — pisaría este mismo mensaje de éxito
         // al toque. Alcanza con actualizar el botón y el badge "ya evaluado" a mano.
         estadoEl.innerHTML = '<p class="pres__msg-exito">✓ Evaluación guardada.</p>';

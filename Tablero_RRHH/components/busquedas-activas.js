@@ -1,12 +1,5 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
-
-const HDR = {
-  'Content-Type': 'application/json',
-  apikey:         SUPABASE_ANON_KEY,
-  Authorization:  `Bearer ${SUPABASE_ANON_KEY}`,
-};
-
-async function sbGet(q) { const r = await fetch(`${SUPABASE_URL}/rest/v1/${q}`, { headers: HDR }); if (!r.ok) throw new Error(await r.text()); return r.json(); }
+import { sbTraerTodo } from '../data/supabase-rest.js';
+import { htmlError } from './util.js';
 
 function e(s)        { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function fmtFecha(f) { if (!f) return '—'; return new Date(f).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }); }
@@ -81,9 +74,9 @@ export async function renderizarBusquedasActivas(contenedor) {
   let filtroActivo = '';
 
   try {
-    busquedas = await sbGet('solicitudes_personal?estado=eq.aprobado&estado_busqueda=neq.cubierto&order=created_at.desc');
-  } catch {
-    contenedor.innerHTML = `<div class="estado-vacio"><h3 class="estado-vacio__titulo">Error al cargar</h3><p class="estado-vacio__texto">No se pudieron obtener las búsquedas activas.</p></div>`;
+    busquedas = await sbTraerTodo('solicitudes_personal?estado=eq.aprobado&estado_busqueda=neq.cubierto&order=created_at.desc,id.desc');
+  } catch (err) {
+    contenedor.innerHTML = htmlError('No se pudieron obtener las búsquedas activas.', err.message);
     return;
   }
 
@@ -91,11 +84,14 @@ export async function renderizarBusquedasActivas(contenedor) {
   if (busquedas.length) {
     try {
       const ids = busquedas.map(b => b.id).join(',');
-      const vinculados = await sbGet(`candidatos?solicitud_id=in.(${ids})&estado=eq.contratado&select=solicitud_id`);
+      const vinculados = await sbTraerTodo(`candidatos?solicitud_id=in.(${ids})&estado=eq.contratado&select=solicitud_id&order=id.asc`);
       vinculados.forEach(c => {
         contratadosPor[c.solicitud_id] = (contratadosPor[c.solicitud_id] || 0) + 1;
       });
-    } catch (_) {}
+    } catch (err) {
+      // Fallback intencional: sin esto solo falta el contador de contratados de cada tarjeta.
+      console.warn('busquedas-activas: no se pudieron contar los contratados', err);
+    }
   }
 
   function n(f) { return filtrar(busquedas, f).length; }

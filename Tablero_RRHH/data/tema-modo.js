@@ -63,6 +63,18 @@ function actualizarGraficos(modo) {
 export function inicializarTema() {
   aplicarColores(modoActual());
   document.documentElement.style.setProperty('--fuente-base', tema.tipografia.familia);
+  respetarMovimientoReducido();
+}
+
+// Si el sistema pide "reducir movimiento" (Windows: efectos de animación desactivados),
+// los gráficos se dibujan sin animar, igual que el resto del tablero (CLAUDE.md §8).
+function respetarMovimientoReducido() {
+  if (typeof Chart === 'undefined' || !window.matchMedia) return;
+  const consulta = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const original = Chart.defaults.animation;
+  const aplicar = () => { Chart.defaults.animation = consulta.matches ? false : original; };
+  aplicar();
+  consulta.addEventListener?.('change', aplicar);
 }
 
 export function alternarModo() {

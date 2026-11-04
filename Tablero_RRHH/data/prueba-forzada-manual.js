@@ -4,14 +4,12 @@
 // principio de components/desempeno-prueba.js). Es el espejo de data/reingresos-manuales.js, que
 // fuerza para el otro lado: a alguien reingresado, FUERA de período de prueba.
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './fuentes.js';
+import { sbGet, sbUpsert, sbDelete } from './supabase-rest.js';
 
-const HDR = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
-const HDR_JSON = { ...HDR, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' };
-
+// Lanza error si falla: devolver [] en silencio haría que los forzados por cambio de función
+// desaparezcan del período de prueba sin que nadie se entere.
 export async function obtenerPruebaForzadaManual() {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/iso_prueba_forzada_manual?select=*`, { headers: HDR });
-  return r.ok ? r.json() : [];
+  return sbGet('iso_prueba_forzada_manual?select=*');
 }
 
 // Map de "legajo|empresa" -> { motivo, fecha_referencia } — formato listo para pasarle a
@@ -26,16 +24,10 @@ export async function obtenerPruebaForzadaMap() {
 }
 
 export async function marcarPruebaForzada(legajo, empresa, motivo, fechaReferencia) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/iso_prueba_forzada_manual?on_conflict=legajo,empresa`, {
-    method: 'POST', headers: HDR_JSON,
-    body: JSON.stringify({ legajo: +legajo, empresa, motivo: motivo || null, fecha_referencia: fechaReferencia || null }),
-  });
-  if (!r.ok) throw new Error(`Supabase: error ${r.status}`);
+  await sbUpsert('iso_prueba_forzada_manual?on_conflict=legajo,empresa',
+    { legajo: +legajo, empresa, motivo: motivo || null, fecha_referencia: fechaReferencia || null });
 }
 
 export async function quitarPruebaForzada(legajo, empresa) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/iso_prueba_forzada_manual?legajo=eq.${legajo}&empresa=eq.${empresa}`, {
-    method: 'DELETE', headers: HDR,
-  });
-  if (!r.ok) throw new Error(`Supabase: error ${r.status}`);
+  await sbDelete(`iso_prueba_forzada_manual?legajo=eq.${legajo}&empresa=eq.${empresa}`);
 }

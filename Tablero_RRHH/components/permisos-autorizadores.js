@@ -23,7 +23,8 @@ export async function renderizarPermisosAutorizadores(contenedor) {
     try {
       const d = await nexoCall(tenant, 'get_config_autorizadores', {});
       emailsPorTenant[tenant] = d.emails || [];
-    } catch {
+    } catch (err) {
+      console.error(err);
       emailsPorTenant[tenant] = null; // null = no se pudo cargar, distinto de "sin emails"
       errores.push(tenant);
     }

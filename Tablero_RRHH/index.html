@@ -24,14 +24,16 @@
   <link rel="stylesheet" href="estilos/componentes.css">
   <link rel="stylesheet" href="estilos/tema-vitalis.css">
 
-  <!-- Chart.js vía CDN (sin npm ni build step) -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+  <!-- Librerías vía CDN (sin npm ni build step), con versión FIJA para que una versión
+       nueva no cambie el tablero sin aviso. "defer": no frenan la primera pintura y
+       igual quedan cargadas antes que app.js (los scripts diferidos corren en orden). -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.6.1/dist/chart.umd.min.js" defer></script>
   <!-- SheetJS para exportar Excel -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
   <!-- jsPDF + html2canvas para exportar reportes a PDF (Ficha individual → Grupo/Sector) -->
-  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" defer></script>
 </head>
 <body>
 
@@ -47,8 +49,9 @@
 
     <div class="app-main">
 
-      <!-- Top bar solo en mobile -->
-      <div class="app-topbar" aria-hidden="true">
+      <!-- Top bar solo en mobile (sin aria-hidden: adentro está el botón del menú, que
+           tiene que poder usarse con lector de pantalla; en escritorio se oculta por CSS). -->
+      <div class="app-topbar">
         <button id="btn-hamburger" class="btn-hamburger" aria-label="Abrir menú" aria-controls="nav-lateral" aria-expanded="false">
           <span></span><span></span><span></span>
         </button>

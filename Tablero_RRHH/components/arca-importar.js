@@ -2,16 +2,9 @@
 // Sube el archivo de "Comprobantes Recibidos" de ARCA (CSV), lo filtra contra los proveedores
 // activos en seguimiento, y guarda el histórico en Supabase (upsert por comprobante).
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { sbTraerTodo, sbPost, sbPatch } from '../data/supabase-rest.js';
 import { parsearArchivoARCA, labelTipoComprobante } from '../data/parser-arca.js';
 import { e as eP } from './venc-comun.js';
-
-const HDR_JSON = {
-  apikey: SUPABASE_ANON_KEY,
-  Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-  'Content-Type': 'application/json',
-};
-const HDR_SB = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 
 // Recién a partir de esta fecha se generan vencimientos de pago automáticos al importar.
 // Antes de esto la empresa no usaba este sistema, así que no tiene sentido crear vencimientos
@@ -20,19 +13,21 @@ const HDR_SB = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_AN
 const FECHA_DESDE_GENERAR_PAGOS = '2026-08-01';
 
 async function obtenerProveedoresActivos() {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/arca_proveedores?activo=eq.true&select=id,cuit,razon_social,dias_plazo_pago`, { headers: HDR_SB });
-  if (!r.ok) throw new Error('No se pudo obtener la lista de proveedores en seguimiento.');
-  return r.json();
+  try {
+    return await sbTraerTodo('arca_proveedores?activo=eq.true&select=id,cuit,razon_social,dias_plazo_pago&order=id.asc');
+  } catch (err) {
+    console.error(err);
+    throw new Error('No se pudo obtener la lista de proveedores en seguimiento.');
+  }
 }
 
 // Completa la razón social de los proveedores que todavía no la tienen, usando lo que
 // trajo el archivo de ARCA para ese CUIT (así el alta de proveedor solo necesita el CUIT).
 async function actualizarRazonesSocialesDetectadas(detecciones) {
   for (const { id, razonSocial } of detecciones) {
-    await fetch(`${SUPABASE_URL}/rest/v1/arca_proveedores?id=eq.${id}`, {
-      method: 'PATCH', headers: { ...HDR_JSON, Prefer: 'return=minimal' },
-      body: JSON.stringify({ razon_social: razonSocial }),
-    });
+    // Es un dato de conveniencia: si falla, la importación sigue (como antes) pero queda registro.
+    try { await sbPatch(`arca_proveedores?id=eq.${id}`, { razon_social: razonSocial }); }
+    catch (err) { console.warn('ARCA Importar: no se pudo completar la razón social del proveedor', id, err); }
   }
 }
 
@@ -43,15 +38,17 @@ async function guardarComprobantes(filas) {
   const guardadas = [];
   for (let i = 0; i < filas.length; i += BATCH) {
     const lote = filas.slice(i, i + BATCH);
-    const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/arca_comprobantes?on_conflict=cuit,punto_venta,numero_comprobante,tipo_comprobante`,
-      { method: 'POST', headers: { ...HDR_JSON, Prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify(lote) }
-    );
-    if (!r.ok) {
-      const detalle = await r.text().catch(() => '');
-      throw new Error(`Error al guardar comprobantes (HTTP ${r.status})${detalle ? ': ' + detalle.slice(0, 200) : ''}`);
+    let filasGuardadas;
+    try {
+      filasGuardadas = await sbPost(
+        'arca_comprobantes?on_conflict=cuit,punto_venta,numero_comprobante,tipo_comprobante',
+        lote,
+        'resolution=merge-duplicates,return=representation'
+      );
+    } catch (err) {
+      throw new Error(`Error al guardar comprobantes: ${err.message}`);
     }
-    guardadas.push(...await r.json());
+    guardadas.push(...(filasGuardadas ?? []));
   }
   return guardadas;
 }
@@ -72,10 +69,15 @@ async function generarPagosDesdeComprobantes(comprobantesGuardados, plazoPorCuit
   if (!candidatos.length) return 0;
 
   const ids = candidatos.map(c => c.id);
-  const existentes = await fetch(
-    `${SUPABASE_URL}/rest/v1/pagos_vencimiento?origen_comprobante_id=in.(${ids.join(',')})&select=origen_comprobante_id`,
-    { headers: HDR_SB }
-  ).then(r => r.ok ? r.json() : []);
+  // Si esta lectura falla hay que cortar: antes caía a [] y se generaban pagos duplicados.
+  let existentes;
+  try {
+    existentes = await sbTraerTodo(
+      `pagos_vencimiento?origen_comprobante_id=in.(${ids.join(',')})&select=origen_comprobante_id&order=id.asc`
+    );
+  } catch (err) {
+    throw new Error(`No se pudieron verificar los vencimientos de pago existentes: ${err.message}`);
+  }
   const yaTienenPago = new Set(existentes.map(x => x.origen_comprobante_id));
 
   const nuevos = candidatos
@@ -97,10 +99,8 @@ async function generarPagosDesdeComprobantes(comprobantesGuardados, plazoPorCuit
   const BATCH = 500;
   for (let i = 0; i < nuevos.length; i += BATCH) {
     const lote = nuevos.slice(i, i + BATCH);
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/pagos_vencimiento`, {
-      method: 'POST', headers: HDR_JSON, body: JSON.stringify(lote),
-    });
-    if (!r.ok) throw new Error('Error al generar los vencimientos de pago (HTTP ' + r.status + ')');
+    try { await sbPost('pagos_vencimiento', lote); }
+    catch (err) { throw new Error(`Error al generar los vencimientos de pago: ${err.message}`); }
   }
   return nuevos.length;
 }

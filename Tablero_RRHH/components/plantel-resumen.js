@@ -1,4 +1,4 @@
-import { obtenerTabla } from '../data/cliente-supabase.js';
+import { sbTraerTodo } from '../data/supabase-rest.js';
 import { obtenerClasificacionPuestos, tipoPuesto } from '../data/clasificacion-puestos.js';
 
 const COLOR_CIMOMET      = '#1a4a7a';
@@ -19,10 +19,11 @@ export async function renderizarPlantelResumen(contenedor) {
   let empleados, mapaClasif;
   try {
     [empleados, mapaClasif] = await Promise.all([
-      obtenerTabla('v_empleados_activos', 'empresa,desc_puesto'),
+      sbTraerTodo('v_empleados_activos?select=empresa,desc_puesto&order=id.asc'),
       obtenerClasificacionPuestos(),
     ]);
   } catch (e) {
+    console.error(e);
     contenedor.innerHTML = `
       <div class="estado-vacio">
         <div class="estado-vacio__icono">

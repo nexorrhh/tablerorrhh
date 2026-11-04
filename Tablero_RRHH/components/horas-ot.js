@@ -4,6 +4,7 @@
 
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
 import { obtenerClasificacionPuestos, tipoPuesto } from '../data/clasificacion-puestos.js';
+import { sbRpc, sbTraerTodo, sbTraerTodoCache, invalidarCache } from '../data/supabase-rest.js';
 
 const HDR    = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 const HDR_JSON = { ...HDR, 'Content-Type': 'application/json', Prefer: 'return=minimal' };
@@ -31,21 +32,6 @@ function serialAFecha(serial) {
   return d.toISOString().slice(0, 10);
 }
 
-// Supabase/PostgREST trunca en 1000 filas por request sin avisar — paginar hasta agotar.
-async function fetchTodasFilas(url) {
-  const PAGE = 1000;
-  let offset = 0, out = [];
-  for (;;) {
-    const sep = url.includes('?') ? '&' : '?';
-    const r = await fetch(`${url}${sep}limit=${PAGE}&offset=${offset}`, { headers: HDR });
-    if (!r.ok) break;
-    const rows = await r.json();
-    out = out.concat(rows);
-    if (rows.length < PAGE) break;
-    offset += PAGE;
-  }
-  return out;
-}
 
 // Legajos de Capataz que en realidad son una entidad (empresa/vehículo) y no una persona:
 // sus "horas" son costeo agregado, no tiempo de nadie. Se identifican porque el nombre no
@@ -145,10 +131,23 @@ export function parsearExcelOT(wb) {
 
 export async function guardarEnSupabase(filas) {
   const periodos = [...new Set(filas.map(f => f.periodo))];
+  // Camino principal: borrar + insertar en una sola transacción (sql/cargas_atomicas.sql).
+  // Si algo falla no se guarda nada y el período anterior queda intacto.
+  try {
+    await sbRpc('rrhh_cargar_horas_ot', { p_periodos: periodos, p_filas: filas });
+    invalidarCache();
+    return;
+  } catch (e) {
+    // Solo se usa el método por lotes si la función todavía no está instalada.
+    if (!/PGRST202|Supabase 404/.test(e.message)) throw new Error(`Error al guardar: ${e.message}`);
+    console.warn('rrhh_cargar_horas_ot no instalada; se usa la carga por lotes (no atómica).');
+  }
   // Reemplazar por período — no acumula duplicados si se vuelve a subir el mismo mes.
-  await fetch(`${SUPABASE_URL}/rest/v1/horas_ot_detalle?periodo=in.(${periodos.join(',')})`, {
+  const rDel = await fetch(`${SUPABASE_URL}/rest/v1/horas_ot_detalle?periodo=in.(${periodos.join(',')})`, {
     method: 'DELETE', headers: HDR,
   });
+  if (!rDel.ok) throw new Error(`Error al reemplazar el período (HTTP ${rDel.status}); no se guardó nada.`);
+  invalidarCache();
   const BATCH = 500;
   for (let i = 0; i < filas.length; i += BATCH) {
     const lote = filas.slice(i, i + BATCH);
@@ -170,15 +169,15 @@ const SELECT_OT = 'periodo,fecha,legajo,empresa,nombre,operacion,proyecto_nombre
 // Horas). Esas cargas esporádicas no son horas de OT reales de ese puesto: se excluyen acá
 // enteras para no ensuciar el informe con datos parciales.
 async function cargarFilasOT() {
-  const [rows, empRes, mapaClasif] = await Promise.all([
-    fetchTodasFilas(`${SUPABASE_URL}/rest/v1/horas_ot_detalle?select=${SELECT_OT}&order=periodo.asc,id.asc`),
-    fetch(`${SUPABASE_URL}/rest/v1/empleados?select=legajo,empresa,desc_puesto`, { headers: HDR }),
+  // sbTraerTodo lanza error si una página falla: antes devolvía datos parciales como
+  // si estuvieran completos, y si fallaba empleados se mezclaba el personal mensual.
+  const [rows, empleados, mapaClasif] = await Promise.all([
+    sbTraerTodo(`horas_ot_detalle?select=${SELECT_OT}&order=periodo.asc,id.asc`),
+    sbTraerTodoCache('empleados?select=legajo,empresa,desc_puesto&order=id.asc'),
     obtenerClasificacionPuestos(),
   ]);
   const tipoPorClave = new Map(); // `${empresa}|${legajo}` -> 'mensual' | 'quincenal' | 'sin_asignar'
-  if (empRes.ok) {
-    (await empRes.json()).forEach(e => tipoPorClave.set(`${e.empresa}|${e.legajo}`, tipoPuesto(e.desc_puesto, mapaClasif)));
-  }
+  empleados.forEach(e => tipoPorClave.set(`${e.empresa}|${e.legajo}`, tipoPuesto(e.desc_puesto, mapaClasif)));
   return rows.filter(f => !f.anomalo && tipoPorClave.get(`${f.empresa}|${f.legajo}`) !== 'mensual');
 }
 

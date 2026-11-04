@@ -1,19 +1,13 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { sbGet, sbTraerTodo, sbPost, sbPatch, sbDelete } from '../data/supabase-rest.js';
+import { htmlError } from './util.js';
 import { obtenerUsuario } from '../data/usuario-activo.js';
 import { abrirDetalleBusqueda } from './busqueda-detalle.js';
 import { cerrarConAnimacion } from './modal-animado.js';
 
 const TABLA = 'solicitudes_personal';
-const HDR = {
-  'Content-Type': 'application/json',
-  apikey:        SUPABASE_ANON_KEY,
-  Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-};
-
-async function sbGet(q)       { const r = await fetch(`${SUPABASE_URL}/rest/v1/${q}`, { headers: HDR }); if (!r.ok) throw new Error(await r.text()); return r.json(); }
-async function sbPost(b)      { const r = await fetch(`${SUPABASE_URL}/rest/v1/${TABLA}`, { method:'POST', headers:{...HDR,Prefer:'return=representation'}, body:JSON.stringify(b) }); if (!r.ok) throw new Error(await r.text()); return (await r.json())[0]; }
-async function sbPatch(id, b) { const r = await fetch(`${SUPABASE_URL}/rest/v1/${TABLA}?id=eq.${id}`, { method:'PATCH', headers:{...HDR,Prefer:'return=minimal'}, body:JSON.stringify(b) }); if (!r.ok) throw new Error(await r.text()); }
-async function sbDelete(id)   { const r = await fetch(`${SUPABASE_URL}/rest/v1/${TABLA}?id=eq.${id}`, { method:'DELETE', headers:HDR }); if (!r.ok) throw new Error(await r.text()); }
+const crearSolicitud      = async (b)     => (await sbPost(TABLA, b, 'return=representation'))[0];
+const actualizarSolicitud = (id, b)       => sbPatch(`${TABLA}?id=eq.${id}`, b);
+const borrarSolicitud     = (id)          => sbDelete(`${TABLA}?id=eq.${id}`);
 
 function e(s)        { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function fmtFecha(f) { if (!f) return ''; return new Date(f).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'}); }
@@ -32,10 +26,12 @@ const AREAS_SOLICITUD = ['Administrativo', 'Calidad', 'Gerencia', 'Ingeniería',
 // una lista fija acá, para no desincronizarse cuando se dé de alta un puesto nuevo.
 async function obtenerPuestosDisponibles() {
   try {
-    const rows = await sbGet('v_empleados_activos?select=desc_puesto');
+    const rows = await sbTraerTodo('v_empleados_activos?select=desc_puesto&order=id.asc');
     const set = new Set(rows.map(r => (r.desc_puesto || '').trim()).filter(Boolean));
     return [...set].sort((a, b) => a.localeCompare(b, 'es'));
-  } catch {
+  } catch (err) {
+    // Fallback intencional: sin la lista de puestos se puede seguir viendo/autorizando búsquedas.
+    console.warn('obtenerPuestosDisponibles: sin lista de puestos', err);
     return [];
   }
 }
@@ -55,7 +51,9 @@ async function obtenerBajasRecientes() {
   try {
     const desde = new Date(Date.now() - VENTANA_BAJAS_DIAS * 24 * 60 * 60 * 1000).toISOString();
     return await sbGet(`empleados?select=legajo,empresa,apellido_y_nombre,desc_puesto,actualizado_en&activo=eq.false&actualizado_en=gte.${desde}&order=actualizado_en.desc&limit=100`);
-  } catch {
+  } catch (err) {
+    // Fallback intencional: solo alimenta el selector "Reemplaza a" del alta; no debe tapar la pantalla.
+    console.warn('obtenerBajasRecientes: sin bajas recientes', err);
     return [];
   }
 }
@@ -131,12 +129,12 @@ export async function renderizarBusquedas(contenedor, alActualizarBadge) {
 
   try {
     [solicitudes, puestosDisponibles, bajasRecientes] = await Promise.all([
-      sbGet(`${TABLA}?order=created_at.desc`),
+      sbTraerTodo(`${TABLA}?order=created_at.desc,id.desc`),
       obtenerPuestosDisponibles(),
       obtenerBajasRecientes(),
     ]);
-  } catch {
-    contenedor.innerHTML = `<div class="estado-vacio"><h3 class="estado-vacio__titulo">Error al cargar</h3><p class="estado-vacio__texto">No se pudieron obtener las búsquedas.</p></div>`;
+  } catch (err) {
+    contenedor.innerHTML = htmlError('No se pudieron obtener las búsquedas.', err.message);
     return;
   }
 
@@ -146,19 +144,22 @@ export async function renderizarBusquedas(contenedor, alActualizarBadge) {
   // Auto-iniciar búsquedas aprobadas que quedaron en "pendiente"
   const aPatch = solicitudes.filter(s => s.estado === 'aprobado' && s.estado_busqueda === 'pendiente');
   if (aPatch.length) {
-    await Promise.allSettled(aPatch.map(s => sbPatch(s.id, { estado_busqueda: 'en_busqueda' })));
+    await Promise.allSettled(aPatch.map(s => actualizarSolicitud(s.id, { estado_busqueda: 'en_busqueda' })));
     aPatch.forEach(s => { s.estado_busqueda = 'en_busqueda'; });
   }
 
   if (solicitudes.length) {
     try {
       const ids = solicitudes.map(s => s.id).join(',');
-      const cands = await sbGet(`candidatos?solicitud_id=in.(${ids})&estado=eq.contratado&select=id,nombre,apellido,solicitud_id,updated_at&order=updated_at.asc`);
+      const cands = await sbTraerTodo(`candidatos?solicitud_id=in.(${ids})&estado=eq.contratado&select=id,nombre,apellido,solicitud_id,updated_at&order=updated_at.asc,id.asc`);
       cands.forEach(c => {
         if (!contratadosMap[c.solicitud_id]) contratadosMap[c.solicitud_id] = [];
         contratadosMap[c.solicitud_id].push(c);
       });
-    } catch (_) {}
+    } catch (err) {
+      // Fallback intencional: sin esto solo falta el paso "Contratado" de la línea de tiempo.
+      console.warn('busquedas: no se pudieron cargar los contratados', err);
+    }
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -308,7 +309,7 @@ export async function renderizarBusquedas(contenedor, alActualizarBadge) {
       btn.disabled = true; btn.textContent = 'Guardando…';
       try {
         const body = { estado:'aprobado', aprobado_por:quien, fecha_aprobacion:new Date().toISOString(), notas_director:notas, estado_busqueda:'pendiente' };
-        await sbPatch(solId, body);
+        await actualizarSolicitud(solId, body);
         Object.assign(s, body);
         cerrar(); actualizar(); alActualizarBadge?.();
       } catch (err) {
@@ -343,7 +344,7 @@ export async function renderizarBusquedas(contenedor, alActualizarBadge) {
       btn.disabled = true; btn.textContent = 'Guardando…';
       try {
         const body = { estado:'rechazado', notas_director:motivo };
-        await sbPatch(solId, body);
+        await actualizarSolicitud(solId, body);
         Object.assign(s, body);
         cerrar(); actualizar(); alActualizarBadge?.();
       } catch (err) {
@@ -466,7 +467,7 @@ export async function renderizarBusquedas(contenedor, alActualizarBadge) {
       const btn = modal.querySelector('#bsq-n-ok');
       btn.disabled = true; btn.textContent = 'Guardando…';
       try {
-        const creada = await sbPost(body);
+        const creada = await crearSolicitud(body);
         solicitudes.unshift(creada);
         cerrar(); actualizar(); alActualizarBadge?.();
       } catch (err) {
@@ -494,7 +495,7 @@ export async function renderizarBusquedas(contenedor, alActualizarBadge) {
         if (!confirm(`¿Eliminás la búsqueda "${btn.dataset.puesto}"? No se puede deshacer.`)) return;
         btn.disabled = true;
         try {
-          await sbDelete(btn.dataset.id);
+          await borrarSolicitud(btn.dataset.id);
           const idx = solicitudes.findIndex(x => x.id === btn.dataset.id);
           if (idx !== -1) solicitudes.splice(idx, 1);
           delete contratadosMap[btn.dataset.id];

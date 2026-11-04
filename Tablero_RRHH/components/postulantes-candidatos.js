@@ -1,33 +1,5 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
-
-const HDR = {
-  'Content-Type': 'application/json',
-  'apikey': SUPABASE_ANON_KEY,
-  'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-};
-
-async function sbGet(path) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: HDR });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
-
-async function sbDelete(path) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    method: 'DELETE',
-    headers: { ...HDR, 'Prefer': 'return=minimal' },
-  });
-  if (!res.ok) throw new Error(await res.text());
-}
-
-async function sbPatch(path, body) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    method: 'PATCH',
-    headers: { ...HDR, 'Prefer': 'return=minimal' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(await res.text());
-}
+import { sbGet, sbTraerTodo, sbDelete, sbPatch } from '../data/supabase-rest.js';
+import { htmlError } from './util.js';
 
 // ── Estados posibles del candidato ──────────────────────────────────────────
 // Verificar que estos valores coincidan con el CHECK constraint de la tabla candidatos en Supabase.
@@ -84,20 +56,18 @@ export async function renderizarPostulantesCandidatos(contenedor) {
   let solicitudes  = [];
 
   try {
-    candidatos = await sbGet('candidatos?select=*&order=created_at.desc');
-  } catch (_) {
-    contenedor.innerHTML = `
-      <div class="estado-vacio">
-        <h3 class="estado-vacio__titulo">Error al cargar</h3>
-        <p class="estado-vacio__texto">No se pudieron obtener los candidatos.</p>
-      </div>`;
+    candidatos = await sbTraerTodo('candidatos?select=*&order=created_at.desc,id.asc');
+  } catch (err) {
+    contenedor.innerHTML = htmlError('No se pudieron obtener los candidatos.', err.message);
     return;
   }
 
   // Solicitudes aprobadas sin cubrir (para el dropdown de vinculación)
   try {
-    solicitudes = await sbGet('solicitudes_personal?select=id,puesto,empresa,cantidad,estado_busqueda&estado=eq.aprobado&estado_busqueda=neq.cubierto&order=created_at.desc');
-  } catch (_) {
+    solicitudes = await sbTraerTodo('solicitudes_personal?select=id,puesto,empresa,cantidad,estado_busqueda&estado=eq.aprobado&estado_busqueda=neq.cubierto&order=created_at.desc,id.desc');
+  } catch (err) {
+    // Fallback intencional: solo alimenta el desplegable "Vincular a búsqueda" de la ficha.
+    console.warn('postulantes-candidatos: sin búsquedas abiertas para vincular', err);
     solicitudes = [];
   }
 
@@ -109,7 +79,10 @@ export async function renderizarPostulantesCandidatos(contenedor) {
     try {
       const extra = await sbGet(`solicitudes_personal?id=in.(${vinculoIds.join(',')})&select=id,puesto,empresa,cantidad,estado_busqueda`);
       extra.forEach(s => { solMap[s.id] = s; });
-    } catch (_) {}
+    } catch (err) {
+      // Fallback intencional: solo falta el nombre de la búsqueda ya vinculada en la ficha.
+      console.warn('postulantes-candidatos: no se pudieron cargar las búsquedas vinculadas', err);
+    }
   }
 
   // ── Estado de la vista ──

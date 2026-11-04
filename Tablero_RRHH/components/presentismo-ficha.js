@@ -4,7 +4,7 @@
 // de presentismo-indicadores.js para que no haya dos fuentes de verdad. El detalle día por
 // día es el mismo calendario/tabla que arma "Por persona", también reutilizado tal cual.
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { SUPABASE_URL } from '../data/fuentes.js';
 import { obtenerClasificacionPuestos, tipoPuesto } from '../data/clasificacion-puestos.js';
 import { obtenerClasificacionAusencias, categoriaAusencia } from '../data/clasificacion-ausencias.js';
 import {
@@ -12,10 +12,12 @@ import {
   fetchTodasFilas, fmtNum, fmtPeriodo, fmtFecha, EMP_LABEL,
   CATEGORIAS_TABLA, CATEGORIA_LABEL, CATEGORIA_COLOR, CODIGOS_EXCLUIDOS_AUSENTISMO,
   renderDias, renderEventosTardanza, mesesDisponibles, rangoQuincena, reconstruirFilasDesdeDetalle,
+  totalHorasTrabajadas,
 } from './presentismo-indicadores.js';
 import { renderDetalleDia, habilitarTooltipsOT } from './presentismo-personas.js';
+import { sbTraerTodo, sbTraerTodoCache } from '../data/supabase-rest.js';
+import { htmlError } from './util.js';
 
-const HDR = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 const TIPO_LABEL = { mensual: 'Mensual', quincenal: 'Quincenal', sin_asignar: 'Sin clasificar' };
 const EXT50_CODIGOS = new Set(['HSEXT', 'HSEXT50', 'HS 50 VAC']);
 // Selección rápida del modo Grupo: tilda de una a todo el personal activo de un tipo.
@@ -45,8 +47,9 @@ export async function renderizarPresentismoFicha(contenedor) {
   let periodosGrupo = []; // períodos disponibles para el modo Grupo/Sector (independiente de una persona)
   let mapaAusencias = new Map();
   try {
-    const [rE, mapaClasif, mapaAus, filasHoras] = await Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/empleados?select=legajo,apellido_y_nombre,empresa,desc_puesto,activo&limit=2000`, { headers: HDR }),
+    const [filasEmp, mapaClasif, mapaAus, filasHoras] = await Promise.all([
+      // Antes: limit=2000 fijo y, si fallaba, la ficha seguía solo con los de Tango.
+      sbTraerTodoCache('empleados?select=legajo,apellido_y_nombre,empresa,desc_puesto,activo&order=id.asc'),
       obtenerClasificacionPuestos(),
       obtenerClasificacionAusencias(),
       // Paginado: la tabla supera el tope de 1000 filas por consulta del servidor.
@@ -54,17 +57,14 @@ export async function renderizarPresentismoFicha(contenedor) {
     ]);
     mapaAusencias = mapaAus;
     periodosGrupo = [...new Set(filasHoras.map(r => r.periodo))];
-    if (rE.ok) {
-      const filas = await rE.json();
-      indice = filas.map(e => ({
-        legajo: e.legajo,
-        nombreCompleto: e.apellido_y_nombre || `Legajo ${e.legajo}`,
-        empresa: e.empresa,
-        tipo: tipoPuesto(e.desc_puesto, mapaClasif),
-        activo: !!e.activo,
-        sector: e.desc_puesto || 'Sin sector',
-      }));
-    }
+    indice = filasEmp.map(e => ({
+      legajo: e.legajo,
+      nombreCompleto: e.apellido_y_nombre || `Legajo ${e.legajo}`,
+      empresa: e.empresa,
+      tipo: tipoPuesto(e.desc_puesto, mapaClasif),
+      activo: !!e.activo,
+      sector: e.desc_puesto || 'Sin sector',
+    }));
     // Quien tiene horas cargadas pero no está en el Plantel (bajas anteriores a la carga del
     // Plantel) igual tiene que poder buscarse — se lo arma con los datos de Tango y se lo
     // marca desvinculado. Las filas vienen del período más nuevo al más viejo, así que el
@@ -83,7 +83,7 @@ export async function renderizarPresentismoFicha(contenedor) {
       });
     });
   } catch (e) {
-    contenedor.innerHTML = `<div class="pres__vacio">Error al cargar el plantel: ${e.message}</div>`;
+    contenedor.innerHTML = htmlError('No se pudo cargar el plantel.', e.message);
     return;
   }
 
@@ -185,13 +185,12 @@ export async function renderizarPresentismoFicha(contenedor) {
     let datos = cache.get(legajo);
     if (!datos) {
       try {
-        const [rH, rT, detalle] = await Promise.all([
-          fetch(`${SUPABASE_URL}/rest/v1/rrhh_horas_mensual?legajo=eq.${legajo}&order=periodo.asc&select=legajo,apellido,nombre,departamento,periodo,empresa,hs_normales,hs_esperadas,hs_extra50,hs_extra100,hs_vac_trabajadas,hs_vac_esperadas,hs_justificadas,hs_no_justificadas,hs_ausencias,dias_laborables,dias_presentes,dias_ausentes_nojust`, { headers: HDR }),
-          fetch(`${SUPABASE_URL}/rest/v1/rrhh_tardanzas_salidas?legajo=eq.${legajo}&select=legajo,periodo,fecha,tipo,minutos,codigo_justificacion,descripcion_justificacion`, { headers: HDR }),
+        // Todo paginado y con error visible: antes, si fallaba, la ficha decía "no tiene datos".
+        const [rows, eventos, detalle] = await Promise.all([
+          sbTraerTodo(`rrhh_horas_mensual?legajo=eq.${legajo}&order=periodo.asc,id.asc&select=legajo,apellido,nombre,departamento,periodo,empresa,hs_normales,hs_esperadas,hs_extra50,hs_extra100,hs_vac_trabajadas,hs_vac_esperadas,hs_justificadas,hs_no_justificadas,hs_ausencias,dias_laborables,dias_presentes,dias_ausentes_nojust`),
+          sbTraerTodo(`rrhh_tardanzas_salidas?legajo=eq.${legajo}&select=legajo,periodo,fecha,tipo,minutos,codigo_justificacion,descripcion_justificacion&order=id.asc`),
           fetchTodasFilas(`${SUPABASE_URL}/rest/v1/rrhh_horas_detalle?legajo=eq.${legajo}&select=legajo,fecha,periodo,tipo_hora,hs_trabajadas,hs_reales,hs_esperadas,hs_justificadas,hs_no_justificadas,descripcion_tipo_hora&order=id.asc`),
         ]);
-        const rows = rH.ok ? await rH.json() : [];
-        const eventos = rT.ok ? await rT.json() : [];
         const persona = rows[rows.length - 1] || null;
         // Se trae también lo anómalo (no solo anomalo=eq.false): renderDetalleDia lo separa y
         // lo muestra como aviso en vez de descartarlo en silencio (ver celdaOT).
@@ -475,7 +474,7 @@ export async function renderizarPresentismoFicha(contenedor) {
       const kv = id => contFicha.querySelector(`#ficha-kv-${id}`);
       // Total = normales + extra 50% + extra 100%, con los mismos valores que muestran sus tarjetas.
       const totalExt50Real = gF.ext50Semana + gF.ext50Sabado;
-      kv('total').textContent = fmtNum(Math.round(gF.totalTrab) + totalExt50Real + Math.round(gF.totalExt100));
+      kv('total').textContent = fmtNum(totalHorasTrabajadas(gF.totalTrab, { semana: gF.ext50Semana, sabado: gF.ext50Sabado }, gF.totalExt100));
       kv('trab').textContent = fmtNum(gF.totalTrab) + 'h';
       kv('sub-trab').textContent = !per
         ? `${labels[0]} – ${labels[labels.length - 1]}`
@@ -795,8 +794,10 @@ export async function renderizarPresentismoFicha(contenedor) {
           filasH.forEach(f => cacheMensual.get(String(f.legajo))?.push(f));
           filasT.forEach(f => cacheEventos.get(String(f.legajo))?.push(f));
           detalle.forEach(f => cacheDetalle.get(String(f.legajo))?.push(f));
-        } catch {
-          faltantes.forEach(l => { cacheMensual.set(String(l), []); cacheEventos.set(String(l), []); cacheDetalle.set(String(l), []); });
+        } catch (e) {
+          // Antes se guardaban vacíos en la caché y el grupo se mostraba con 0 horas (y quedaba
+          // así hasta recargar). Ahora no se cachea nada y el error llega a la pantalla.
+          throw new Error(`No se pudieron cargar las horas del grupo: ${e.message}`);
         }
       }
       return {
@@ -928,8 +929,14 @@ export async function renderizarPresentismoFicha(contenedor) {
         return;
       }
       dashEl.innerHTML = '<div class="pres__loading">Cargando…</div>';
-      const { rows, eventos, detalle } = await obtenerDatosGrupo(legajos);
-      construirDashboard(legajos, rows, eventos, detalle);
+      let datosGrupo;
+      try {
+        datosGrupo = await obtenerDatosGrupo(legajos);
+      } catch (e) {
+        dashEl.innerHTML = htmlError('No se pudo armar el informe del grupo.', e.message);
+        return;
+      }
+      construirDashboard(legajos, datosGrupo.rows, datosGrupo.eventos, datosGrupo.detalle);
     }
 
     function nombrePorLegajo(legajo) {
@@ -1285,7 +1292,7 @@ export async function renderizarPresentismoFicha(contenedor) {
 
       // Total = normales + extra 50% + extra 100%, con los mismos valores que muestran sus tarjetas.
       const totalExt50Real = gF.ext50Semana + gF.ext50Sabado;
-      kv('total').textContent = fmtNum(Math.round(gF.totalTrab) + totalExt50Real + Math.round(gF.totalExt100));
+      kv('total').textContent = fmtNum(totalHorasTrabajadas(gF.totalTrab, { semana: gF.ext50Semana, sabado: gF.ext50Sabado }, gF.totalExt100));
       kv('trab').textContent = fmtNum(gF.totalTrab) + 'h';
       kv('sub-trab').textContent = per ? fmtPeriodo(per) : `${labels[0]} – ${labels[labels.length - 1]}`;
       kv('esp').textContent = fmtNum(gF.totalEsp);

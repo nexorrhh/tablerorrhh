@@ -1,4 +1,5 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { sbTraerTodo } from '../data/supabase-rest.js';
+import { htmlError } from './util.js';
 import { ESTADOS, badge as badgeCandidato } from './postulantes-candidatos.js';
 import { EXP_LABEL, FORM_LABEL, ESTAB_LABEL } from './postulantes-preseleccion.js';
 import { cerrarConAnimacion } from './modal-animado.js';
@@ -6,8 +7,6 @@ import { EQUIVALENCIAS_PUESTOS } from '../config/equivalencias-puestos.js';
 
 // Ventana de solo lectura con el estado de una búsqueda: pensada para que Dirección vea de
 // un vistazo quiénes son los candidatos y cómo vienen, sin entrar a la gestión de RRHH.
-
-const HDR = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 
 const RESULTADO_LABEL = { pendiente: 'Pendiente', aprobado: 'Aprobado', rechazado: 'Rechazado', en_revision: 'En revisión' };
 // Estados que cierran el proceso de un candidato sin contratarlo — van aparte, al final.
@@ -25,18 +24,6 @@ function fmtPesos(v) { return '$ ' + Number(v).toLocaleString('es-AR', { maximum
 function norm(s) { return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase(); }
 // "Soldador, Armador" → ['soldador', 'armador'] — el formulario guarda varios sectores juntos.
 function listaNorm(s) { return (s || '').split(',').map(norm).filter(Boolean); }
-
-async function traerTodo(path) {
-  const PAGE = 1000;
-  let out = [];
-  for (let offset = 0; ; offset += PAGE) {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}&limit=${PAGE}&offset=${offset}`, { headers: HDR });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const filas = await r.json();
-    out = out.concat(filas);
-    if (filas.length < PAGE) return out;
-  }
-}
 
 // Un candidato pertenece a la búsqueda si RRHH lo vinculó explícitamente, o — mientras no
 // esté vinculado a ninguna — si postuló para el mismo puesto. Hoy el vínculo explícito solo
@@ -265,15 +252,15 @@ export async function abrirDetalleBusqueda(s) {
   const cuerpo = overlay.querySelector('.bsq-det__cuerpo');
   try {
     const [candidatos, presel] = await Promise.all([
-      traerTodo('candidatos?select=*&order=created_at.desc,id.asc'),
-      traerTodo('preseleccionados?select=sector,puesto_evaluado&estado=eq.activo&order=id.asc'),
+      sbTraerTodo('candidatos?select=*&order=created_at.desc,id.asc'),
+      sbTraerTodo('preseleccionados?select=sector,puesto_evaluado&estado=eq.activo&order=id.asc'),
     ]);
     const nombres = nombresDelPuesto(s.puesto);
     const cantPresel = presel.filter(p => coincide(p.puesto_evaluado, nombres) || coincide(p.sector, nombres)).length;
     cuerpo.innerHTML = contenido(s, candidatos.filter(c => perteneceABusqueda(c, s, nombres)), cantPresel);
     animarEntrada(cuerpo, abiertoEn);
     habilitarPlegadoSuave(cuerpo);
-  } catch {
-    cuerpo.innerHTML = '<p class="bsq-det__vacio">No se pudieron cargar los candidatos. Probá de nuevo en unos segundos.</p>';
+  } catch (err) {
+    cuerpo.innerHTML = htmlError('No se pudieron cargar los candidatos. Probá de nuevo en unos segundos.', err.message);
   }
 }

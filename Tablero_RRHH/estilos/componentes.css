@@ -7604,3 +7604,28 @@ html[data-tema="oscuro"] .desem__pendiente-fila:hover { background: rgba(255,255
   .tarjeta-stat { transition: none; }
   .tarjeta-stat:hover { transform: none; }
 }
+
+/* ── Estado de error estándar (components/util.js → htmlError) ─────────────── */
+.estado-error {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-left: 4px solid var(--color-error);
+  border-radius: var(--radio-s);
+  background: var(--color-fondo);
+  color: var(--color-texto);
+  font-size: 0.9rem;
+}
+.estado-error__detalle { color: var(--color-texto-sec); font-size: 0.8rem; word-break: break-word; }
+
+/* ── Piso de accesibilidad: foco visible con teclado (CLAUDE.md §8) ──────────────
+   Varias reglas de arriba ponen "outline: none" en :focus para inputs y botones.
+   Esta regla va al final y con !important a propósito: garantiza que, al navegar
+   con Tab, siempre se vea dónde está el foco. Con el mouse (:focus sin -visible)
+   no aparece, así que no cambia nada del aspecto habitual. */
+:focus-visible {
+  outline: 2px solid var(--color-primario) !important;
+  outline-offset: 2px !important;
+}

@@ -8,14 +8,11 @@
 // mismo que "pendiente" (sigue esperando una decisión final), con la diferencia de que
 // queda con una observación adjunta. Solo "Autorizado" y "Rechazado" salen de "Pendientes".
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { sbTraerTodo, sbPatch } from '../data/supabase-rest.js';
 import { e, errHtml, fmtFecha, v, ESTADOS_AUTORIZACION as ESTADOS } from './venc-comun.js';
 import { labelTipoComprobante } from '../data/parser-arca.js';
 import { obtenerUsuario } from '../data/usuario-activo.js';
 import { cerrarConAnimacion } from './modal-animado.js';
-
-const HDR_SB   = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
-const HDR_JSON = { ...HDR_SB, 'Content-Type': 'application/json' };
 
 // Estados que siguen contando como "pendiente de decisión final" para filtros/contadores.
 function esPendiente(c) {
@@ -104,10 +101,14 @@ export async function renderizarArcaAutorizar(contenedor) {
   async function cargar() {
     try {
       const [comps, proveedores, perfiles] = await Promise.all([
-        fetch(`${SUPABASE_URL}/rest/v1/arca_comprobantes?order=fecha_emision.desc`, { headers: HDR_SB })
-          .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
-        fetch(`${SUPABASE_URL}/rest/v1/arca_proveedores?select=cuit,autorizador_default_id,fecha_acuerdo,monto_acordado`, { headers: HDR_SB }).then(r => r.ok ? r.json() : []),
-        fetch(`${SUPABASE_URL}/rest/v1/perfiles_rrhh?select=id,nombre`, { headers: HDR_SB }).then(r => r.ok ? r.json() : []),
+        // arca_comprobantes crece sin tope: paginado completo (antes se cortaba en 1000).
+        sbTraerTodo('arca_comprobantes?order=fecha_emision.desc,id.desc'),
+        // Proveedores y perfiles solo agregan pistas ("Debería autorizar", monto acordado):
+        // si fallan, la cola de autorización sigue sirviendo sin ellas.
+        sbTraerTodo('arca_proveedores?select=cuit,autorizador_default_id,fecha_acuerdo,monto_acordado&order=id.asc')
+          .catch(err => { console.warn('ARCA Autorizar: no se pudieron leer los proveedores', err); return []; }),
+        sbTraerTodo('perfiles_rrhh?select=id,nombre&order=id.asc')
+          .catch(err => { console.warn('ARCA Autorizar: no se pudieron leer los perfiles', err); return []; }),
       ]);
       comprobantes = comps;
       const nombrePorId = new Map(perfiles.map(p => [p.id, p.nombre]));
@@ -117,7 +118,8 @@ export async function renderizarArcaAutorizar(contenedor) {
       acuerdoPorCuit = new Map(
         proveedores.filter(p => p.monto_acordado != null).map(p => [p.cuit, { fecha: p.fecha_acuerdo, monto: p.monto_acordado }])
       );
-    } catch {
+    } catch (err) {
+      console.error(err);
       contenedor.innerHTML = errHtml('No se pudieron cargar los comprobantes.');
       return;
     }
@@ -305,16 +307,12 @@ export async function renderizarArcaAutorizar(contenedor) {
     const btn = document.getElementById('am-ok');
     if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
     try {
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/arca_comprobantes?id=eq.${id}`, {
-        method: 'PATCH', headers: { ...HDR_JSON, Prefer: 'return=minimal' },
-        body: JSON.stringify({
-          estado_autorizacion: accion,
-          observacion,
-          revisado_por: usuario?.nombre ?? null,
-          revisado_en: new Date().toISOString(),
-        }),
+      await sbPatch(`arca_comprobantes?id=eq.${id}`, {
+        estado_autorizacion: accion,
+        observacion,
+        revisado_por: usuario?.nombre ?? null,
+        revisado_en: new Date().toISOString(),
       });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
       cerrar();
       await cargar();
       toast(ESTADOS[accion].label);

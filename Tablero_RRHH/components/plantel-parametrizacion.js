@@ -1,4 +1,4 @@
-import { obtenerTabla } from '../data/cliente-supabase.js';
+import { sbTraerTodo } from '../data/supabase-rest.js';
 import {
   obtenerClasificacionPuestos,
   tipoPuesto,
@@ -22,10 +22,11 @@ export async function renderizarPlantelParametrizacion(contenedor) {
   let empleados, mapa;
   try {
     [empleados, mapa] = await Promise.all([
-      obtenerTabla('v_empleados_activos', 'desc_puesto'),
+      sbTraerTodo('v_empleados_activos?select=desc_puesto&order=id.asc'),
       obtenerClasificacionPuestos(),
     ]);
   } catch (e) {
+    console.error(e);
     contenedor.innerHTML = `
       <div class="estado-vacio">
         <div class="estado-vacio__icono">

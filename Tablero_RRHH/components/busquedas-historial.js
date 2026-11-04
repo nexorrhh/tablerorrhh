@@ -1,16 +1,5 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
-
-const HDR = {
-  'Content-Type': 'application/json',
-  apikey:         SUPABASE_ANON_KEY,
-  Authorization:  `Bearer ${SUPABASE_ANON_KEY}`,
-};
-
-async function sbGet(q) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${q}`, { headers: HDR });
-  if (!r.ok) throw new Error(await r.text());
-  return r.json();
-}
+import { sbTraerTodo } from '../data/supabase-rest.js';
+import { htmlError } from './util.js';
 
 function e(s)        { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function fmtFecha(f) { if (!f) return '—'; return new Date(f).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }); }
@@ -72,21 +61,24 @@ export async function renderizarBusquedasHistorial(contenedor) {
   let contratadosMap  = {};
 
   try {
-    solicitudes = await sbGet('solicitudes_personal?order=created_at.desc');
-  } catch {
-    contenedor.innerHTML = `<div class="estado-vacio"><h3 class="estado-vacio__titulo">Error al cargar</h3><p class="estado-vacio__texto">No se pudo obtener el historial de búsquedas.</p></div>`;
+    solicitudes = await sbTraerTodo('solicitudes_personal?order=created_at.desc,id.desc');
+  } catch (err) {
+    contenedor.innerHTML = htmlError('No se pudo obtener el historial de búsquedas.', err.message);
     return;
   }
 
   if (solicitudes.length) {
     try {
       const ids = solicitudes.map(s => s.id).join(',');
-      const contratados = await sbGet(`candidatos?solicitud_id=in.(${ids})&estado=eq.contratado&select=id,nombre,apellido,solicitud_id&order=updated_at.asc`);
+      const contratados = await sbTraerTodo(`candidatos?solicitud_id=in.(${ids})&estado=eq.contratado&select=id,nombre,apellido,solicitud_id&order=updated_at.asc,id.asc`);
       contratados.forEach(c => {
         if (!contratadosMap[c.solicitud_id]) contratadosMap[c.solicitud_id] = [];
         contratadosMap[c.solicitud_id].push(c);
       });
-    } catch (_) {}
+    } catch (err) {
+      // Fallback intencional: sin esto solo falta la columna de contratados.
+      console.warn('busquedas-historial: no se pudieron cargar los contratados', err);
+    }
   }
 
   let filtroActivo = '';

@@ -1,31 +1,28 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
-
-const HDR = {
-  apikey:        SUPABASE_ANON_KEY,
-  Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-};
+import { sbTraerTodo } from '../data/supabase-rest.js';
+import { MESES, htmlError } from './util.js';
 
 const TIPO_LABEL = { contrato: 'Contrato', licencia: 'Licencia', institucional: 'Institucional', factura: 'Factura', impuesto: 'Impuesto' };
-
-const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
-               'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
 const DIAS_SEMANA = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
 
 export async function renderizarVencimientosResumen(contenedor) {
   contenedor.innerHTML = `<p class="plantel__cargando">Cargando vencimientos…</p>`;
 
-  const [rContr, rLic, rInst, rPagos] = await Promise.allSettled([
-    fetch(`${SUPABASE_URL}/rest/v1/contratos_vencimiento?order=fecha_vencimiento.asc`, { headers: HDR }).then(r => r.ok ? r.json() : []),
-    fetch(`${SUPABASE_URL}/rest/v1/licencias_vencimiento?order=fecha_vencimiento.asc`, { headers: HDR }).then(r => r.ok ? r.json() : []),
-    fetch(`${SUPABASE_URL}/rest/v1/vencimientos_institucionales?order=fecha_vencimiento.asc`, { headers: HDR }).then(r => r.ok ? r.json() : []),
-    fetch(`${SUPABASE_URL}/rest/v1/pagos_vencimiento?pagado=eq.false&omitido=eq.false&order=fecha_vencimiento.asc`, { headers: HDR }).then(r => r.ok ? r.json() : []),
-  ]);
-
-  const contratos = rContr.status  === 'fulfilled' ? rContr.value  : [];
-  const licencias = rLic.status    === 'fulfilled' ? rLic.value   : [];
-  const inst      = rInst.status   === 'fulfilled' ? rInst.value  : [];
-  const pagos     = rPagos.status  === 'fulfilled' ? rPagos.value : [];
+  // Si una tabla falla se muestra error: antes caía a [] y el resumen decía "sin
+  // vencimientos" o "todo al día" cuando en realidad no se había podido leer.
+  let contratos, licencias, inst, pagos;
+  try {
+    [contratos, licencias, inst, pagos] = await Promise.all([
+      sbTraerTodo('contratos_vencimiento?order=fecha_vencimiento.asc,id.asc'),
+      sbTraerTodo('licencias_vencimiento?order=fecha_vencimiento.asc,id.asc'),
+      sbTraerTodo('vencimientos_institucionales?order=fecha_vencimiento.asc,id.asc'),
+      sbTraerTodo('pagos_vencimiento?pagado=eq.false&omitido=eq.false&order=fecha_vencimiento.asc,id.asc'),
+    ]);
+  } catch (err) {
+    console.error(err);
+    contenedor.innerHTML = htmlError('No se pudieron cargar los vencimientos.', err.message);
+    return;
+  }
 
   const items = [
     ...contratos.map(r => ({

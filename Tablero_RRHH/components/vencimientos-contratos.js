@@ -1,11 +1,6 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { sbTraerTodo, sbPost, sbPatch, sbDelete as sbBorrar } from '../data/supabase-rest.js';
 import { cerrarConAnimacion } from './modal-animado.js';
 
-const HDR = {
-  apikey:         SUPABASE_ANON_KEY,
-  Authorization:  `Bearer ${SUPABASE_ANON_KEY}`,
-  'Content-Type': 'application/json',
-};
 const TABLA     = 'contratos_vencimiento';
 const TABLA_EMP = 'v_empleados_activos';
 
@@ -15,10 +10,10 @@ const TODOS_TIPOS    = [...TIPOS_CONTRATO, ...TIPOS_SEGURO];
 
 function esSeguro(tipo) { return TIPOS_SEGURO.includes(tipo); }
 
-async function sbGet(q)        { const r = await fetch(`${SUPABASE_URL}/rest/v1/${TABLA}?${q}`, { headers: HDR }); if (!r.ok) throw new Error('HTTP '+r.status); return r.json(); }
-async function sbInsert(body)  { const r = await fetch(`${SUPABASE_URL}/rest/v1/${TABLA}`, { method:'POST',  headers:{...HDR,Prefer:'return=minimal'}, body:JSON.stringify(body) }); if (!r.ok) throw new Error(await r.text()); }
-async function sbUpdate(id, b) { const r = await fetch(`${SUPABASE_URL}/rest/v1/${TABLA}?id=eq.${id}`, { method:'PATCH', headers:{...HDR,Prefer:'return=minimal'}, body:JSON.stringify(b) }); if (!r.ok) throw new Error(await r.text()); }
-async function sbDelete(id)    { const r = await fetch(`${SUPABASE_URL}/rest/v1/${TABLA}?id=eq.${id}`, { method:'DELETE', headers: HDR }); if (!r.ok) throw new Error(await r.text()); }
+function sbGetTodo(q)     { return sbTraerTodo(`${TABLA}?${q}`); }
+function sbInsert(body)   { return sbPost(TABLA, body); }
+function sbUpdate(id, b)  { return sbPatch(`${TABLA}?id=eq.${id}`, b); }
+function sbDelete(id)     { return sbBorrar(`${TABLA}?id=eq.${id}`); }
 
 export async function renderizarVencimientosContratos(contenedor) {
   let registros    = [];
@@ -30,17 +25,17 @@ export async function renderizarVencimientosContratos(contenedor) {
 
   async function cargar() {
     try {
-      const [rContr, rEmp] = await Promise.allSettled([
-        sbGet('order=fecha_vencimiento.asc'),
-        fetch(
-          `${SUPABASE_URL}/rest/v1/${TABLA_EMP}?select=legajo,apellido_y_nombre,empresa&order=apellido_y_nombre.asc`,
-          { headers: HDR }
-        ).then(r => r.ok ? r.json() : [])
-         .then(rows => rows.filter(r => +r.legajo >= 2000 && +r.legajo < 3000)),
+      // Si cualquiera de las dos falla se muestra error: antes caía a [] y la pantalla
+      // decía "Todo en regla" (o escondía la tabla de monotributistas) sin avisar.
+      const [rContr, rEmp] = await Promise.all([
+        sbGetTodo('order=fecha_vencimiento.asc,id.asc'),
+        sbTraerTodo(`${TABLA_EMP}?select=legajo,apellido_y_nombre,empresa&order=apellido_y_nombre.asc,legajo.asc`)
+          .then(rows => rows.filter(r => +r.legajo >= 2000 && +r.legajo < 3000)),
       ]);
-      registros    = rContr.status === 'fulfilled' ? rContr.value : [];
-      monotribList = rEmp.status   === 'fulfilled' ? rEmp.value   : [];
-    } catch {
+      registros    = rContr;
+      monotribList = rEmp;
+    } catch (err) {
+      console.error(err);
       contenedor.innerHTML = errHtml('No se pudieron cargar los contratos.');
       return;
     }

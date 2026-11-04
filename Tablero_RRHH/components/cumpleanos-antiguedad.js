@@ -1,16 +1,9 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { sbTraerTodoCache } from '../data/supabase-rest.js';
+import { MESES } from './util.js';
 import { obtenerClasificacionPuestos, tipoPuesto } from '../data/clasificacion-puestos.js';
 import { crearOrdenTabla } from './tabla-ordenable.js';
 
 const TIPO_LABEL = { mensual: 'Mensual', quincenal: 'Quincenal', sin_asignar: 'Sin asignar' };
-
-const HDR = {
-  apikey:        SUPABASE_ANON_KEY,
-  Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-};
-
-const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
-               'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
 // ── Funciones puras de cálculo ────────────────────────────────────────────────
 // Todas las reglas de negocio viven acá. Si cambia algo, se toca solo este bloque.
@@ -19,12 +12,6 @@ function parseFecha(str) {
   if (!str) return null;
   const p = str.split('-').map(Number);
   return { anio: p[0], mes: p[1], dia: p[2] }; // mes 1-indexed
-}
-
-// Edad que cumple en el año actual (año actual − año nacimiento, sin ajuste)
-function edadQuesCumple(fechaNac, hoy) {
-  const f = parseFecha(fechaNac);
-  return f ? hoy.getFullYear() - f.anio : null;
 }
 
 // ¿El cumpleaños cae en el mes indicado? (mes 1-indexed)
@@ -109,14 +96,15 @@ function fmtAntiguedad({ anios, meses }) {
 // ── Fetch ─────────────────────────────────────────────────────────────────────
 
 async function fetchEmpleados() {
-  const r = await fetch(
-    `${SUPABASE_URL}/rest/v1/empleados?activo=eq.true` +
-    `&select=apellido_y_nombre,empresa,desc_puesto,fecha_nacimiento,fecha_ingreso` +
-    `&order=apellido_y_nombre.asc&limit=2000`,
-    { headers: HDR }
+  // Con caché: el panel pide esto dos veces a la vez (widget de cumpleaños y de aniversarios).
+  // Paginado completo en vez del tope rígido limit=2000.
+  const filas = await sbTraerTodoCache(
+    'empleados?activo=eq.true' +
+    '&select=apellido_y_nombre,empresa,desc_puesto,fecha_nacimiento,fecha_ingreso' +
+    '&order=apellido_y_nombre.asc,id.asc'
   );
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  return r.json();
+  // Copia: la pantalla completa agrega `tipo` a cada fila y no debe tocar lo cacheado.
+  return filas.map(f => ({ ...f }));
 }
 
 function e(s) { return (s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -135,7 +123,8 @@ export async function renderizarWidgetAniversarios(wrapper) {
 
   let empleados = [];
   try { empleados = await fetchEmpleados(); }
-  catch {
+  catch (err) {
+    console.error(err);
     wrapper.innerHTML = `<p class="panel__graf-error">No se pudieron cargar los datos.</p>`;
     return;
   }
@@ -204,7 +193,8 @@ export async function renderizarWidgetCumpleanos(wrapper) {
 
   let empleados = [];
   try { empleados = await fetchEmpleados(); }
-  catch {
+  catch (err) {
+    console.error(err);
     wrapper.innerHTML = `<p class="panel__graf-error">No se pudieron cargar los datos.</p>`;
     return;
   }
@@ -316,7 +306,8 @@ export async function renderizarCumpleanosAntiguedad(contenedor) {
     const [lista, mapaClasif] = await Promise.all([fetchEmpleados(), obtenerClasificacionPuestos()]);
     empleados = lista;
     empleados.forEach(emp => { emp.tipo = tipoPuesto(emp.desc_puesto, mapaClasif); });
-  } catch {
+  } catch (err) {
+    console.error(err);
     contenedor.innerHTML = `
       <div class="estado-vacio">
         <h3 class="estado-vacio__titulo">Error al cargar</h3>
@@ -373,17 +364,23 @@ export async function renderizarCumpleanosAntiguedad(contenedor) {
     }
   }
 
-  // ── Cumpleaños del mes ───────────────────────────────────────────────────────
+  // ── Cumpleaños del mes (navegable, igual que Aniversarios) ───────────────────
+  let mesCump  = mesActual;
+  let anioCump = hoy.getFullYear();
+
   function calcularCumplesMes(lista) {
+    const esMesActual = mesCump === mesActual && anioCump === hoy.getFullYear();
     return lista
-      .filter(emp => esCumpleMes(emp.fecha_nacimiento, mesActual))
+      .filter(emp => esCumpleMes(emp.fecha_nacimiento, mesCump))
       .map(emp => {
         const f = parseFecha(emp.fecha_nacimiento);
         return {
           ...emp,
           dia:   f.dia,
-          edad:  edadQuesCumple(emp.fecha_nacimiento, hoy),
-          esHoy: esCumpleHoy(emp.fecha_nacimiento, hoy),
+          // Edad que cumple en el año del mes que se está mirando (ej. en enero del año
+          // siguiente ya cumple uno más).
+          edad:  anioCump - f.anio,
+          esHoy: esMesActual && esCumpleHoy(emp.fecha_nacimiento, hoy),
         };
       })
       .sort(ordenCumples.comparador(valorCumples));
@@ -436,8 +433,9 @@ export async function renderizarCumpleanosAntiguedad(contenedor) {
 
   function renderCumpleanos(cumplesMes) {
     if (!cumplesMes.length) {
+      const anioLbl = anioCump !== hoy.getFullYear() ? ` ${anioCump}` : '';
       return `<div class="estado-vacio" style="padding:40px 0">
-        <h3 class="estado-vacio__titulo">Sin cumpleaños en ${MESES[mesActual - 1]}</h3>
+        <h3 class="estado-vacio__titulo">Sin cumpleaños en ${MESES[mesCump - 1]}${anioLbl}</h3>
         <p class="estado-vacio__texto">No hay empleados activos que cumplan años este mes con los filtros elegidos.</p>
       </div>`;
     }
@@ -571,16 +569,44 @@ export async function renderizarCumpleanosAntiguedad(contenedor) {
       ${renderAniversariosTabla(anivMes, esHoyMes)}`;
   }
 
+  function renderCumplesSeccion() {
+    const anioLbl    = anioCump !== hoy.getFullYear() ? ` ${anioCump}` : '';
+    const cumplesMes = calcularCumplesMes(baseFiltrada());
+    return `
+      <div class="cump__seccion-header">
+        <h2 class="cump__seccion-titulo">🎂 Cumpleaños</h2>
+        <div class="cump__aniv-nav-bar cump__aniv-nav-bar--inline">
+          <button class="cump__aniv-nav-btn" id="cump-cumple-prev" aria-label="Mes anterior">‹</button>
+          <span class="cump__aniv-nav-label">${MESES[mesCump - 1]}${anioLbl}</span>
+          <button class="cump__aniv-nav-btn" id="cump-cumple-next" aria-label="Mes siguiente">›</button>
+        </div>
+        <span class="cump__count">${cumplesMes.length} persona${cumplesMes.length !== 1 ? 's' : ''}</span>
+      </div>
+      ${renderCumpleanos(cumplesMes)}`;
+  }
+
+  function bindCumplesNav() {
+    contenedor.querySelector('#cump-cumple-prev')?.addEventListener('click', () => {
+      if (mesCump === 1) { mesCump = 12; anioCump--; } else { mesCump--; }
+      refrescarCumples();
+    });
+    contenedor.querySelector('#cump-cumple-next')?.addEventListener('click', () => {
+      if (mesCump === 12) { mesCump = 1; anioCump++; } else { mesCump++; }
+      refrescarCumples();
+    });
+  }
+
+  function refrescarCumples() {
+    contenedor.querySelector('#cump-cumples-seccion').innerHTML = renderCumplesSeccion();
+    bindCumplesNav();
+  }
+
   // ── Actualización de las 3 secciones (filtros / re-render puntual) ───────────
   function actualizarSecciones() {
     const base = baseFiltrada();
-    const cumplesMes     = calcularCumplesMes(base);
     const conAntiguedad  = calcularConAntiguedad(base);
 
-    const secCumples = contenedor.querySelector('#cump-cumples-tabla');
-    secCumples.innerHTML = renderCumpleanos(cumplesMes);
-    secCumples.previousElementSibling.querySelector('.cump__count').textContent =
-      `${cumplesMes.length} persona${cumplesMes.length !== 1 ? 's' : ''}`;
+    refrescarCumples();
 
     contenedor.querySelector('#cump-aniv-seccion').innerHTML = renderAnivSeccion();
     bindAnivNav();
@@ -624,7 +650,6 @@ export async function renderizarCumpleanosAntiguedad(contenedor) {
   }
 
   // ── Render principal (una sola vez) ───────────────────────────────────────────
-  const cumplesMesInicial    = calcularCumplesMes(empleados);
   const conAntiguedadInicial = calcularConAntiguedad(empleados);
 
   contenedor.innerHTML = `
@@ -632,13 +657,9 @@ export async function renderizarCumpleanosAntiguedad(contenedor) {
 
       ${renderPills()}
 
-      <!-- ── Cumpleaños del mes ── -->
+      <!-- ── Cumpleaños del mes (navegable) ── -->
       <section class="cump__seccion">
-        <div class="cump__seccion-header">
-          <h2 class="cump__seccion-titulo">🎂 Cumpleaños de ${MESES[mesActual - 1]}</h2>
-          <span class="cump__count">${cumplesMesInicial.length} persona${cumplesMesInicial.length !== 1 ? 's' : ''}</span>
-        </div>
-        <div id="cump-cumples-tabla">${renderCumpleanos(cumplesMesInicial)}</div>
+        <div id="cump-cumples-seccion">${renderCumplesSeccion()}</div>
       </section>
 
       <!-- ── Aniversarios del mes (navegable) ── -->
@@ -658,8 +679,9 @@ export async function renderizarCumpleanosAntiguedad(contenedor) {
     </div>`;
 
   bindPills();
+  bindCumplesNav();
   bindAnivNav();
-  ordenCumples.wire(contenedor.querySelector('#cump-cumples-tabla'), actualizarSecciones);
+  ordenCumples.wire(contenedor.querySelector('#cump-cumples-seccion'), refrescarCumples);
   ordenAnt.wire(contenedor.querySelector('#cump-ant-tabla'), actualizarSecciones);
   ordenAniv.wire(contenedor.querySelector('#cump-aniv-seccion'), () => {
     contenedor.querySelector('#cump-aniv-seccion').innerHTML = renderAnivSeccion();

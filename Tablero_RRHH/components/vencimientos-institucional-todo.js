@@ -6,6 +6,15 @@
 import { renderizarVencimientosContratos }     from './vencimientos-contratos.js';
 import { renderizarVencimientosLicencias }     from './vencimientos-licencias.js';
 import { renderizarVencimientosInstitucional } from './vencimientos-institucionales.js';
+import { htmlError } from './util.js';
+
+// Cada sección falla sola: un error inesperado en una no deja en blanco a las otras.
+function montarSeccion(fn, cont) {
+  return fn(cont).catch(err => {
+    console.error(err);
+    cont.innerHTML = htmlError('No se pudo cargar esta sección.', err?.message);
+  });
+}
 
 export async function renderizarVencimientosInstitucionalTodo(contenedor) {
   contenedor.innerHTML = `
@@ -25,8 +34,8 @@ export async function renderizarVencimientosInstitucionalTodo(contenedor) {
     </div>`;
 
   await Promise.all([
-    renderizarVencimientosContratos(contenedor.querySelector('#vit-contratos')),
-    renderizarVencimientosLicencias(contenedor.querySelector('#vit-licencias')),
-    renderizarVencimientosInstitucional(contenedor.querySelector('#vit-institucional')),
+    montarSeccion(renderizarVencimientosContratos,     contenedor.querySelector('#vit-contratos')),
+    montarSeccion(renderizarVencimientosLicencias,     contenedor.querySelector('#vit-licencias')),
+    montarSeccion(renderizarVencimientosInstitucional, contenedor.querySelector('#vit-institucional')),
   ]);
 }

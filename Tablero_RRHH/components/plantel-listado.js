@@ -1,4 +1,4 @@
-import { obtenerTabla } from '../data/cliente-supabase.js';
+import { sbTraerTodo } from '../data/supabase-rest.js';
 import { obtenerClasificacionPuestos, tipoPuesto } from '../data/clasificacion-puestos.js';
 
 const TIPO_LABEL = { mensual: 'Mensual', quincenal: 'Quincenal', sin_asignar: 'Sin asignar' };
@@ -9,7 +9,7 @@ export async function renderizarPlantelListado(contenedor) {
   let empleados;
   try {
     const [rows, mapaClasif] = await Promise.all([
-      obtenerTabla('v_empleados_activos', 'legajo,apellido_y_nombre,empresa,desc_puesto'),
+      sbTraerTodo('v_empleados_activos?select=legajo,apellido_y_nombre,empresa,desc_puesto&order=id.asc'),
       obtenerClasificacionPuestos(),
     ]);
     empleados = rows;
@@ -22,6 +22,7 @@ export async function renderizarPlantelListado(contenedor) {
       return (a.apellido_y_nombre || '').localeCompare(b.apellido_y_nombre || '');
     });
   } catch (e) {
+    console.error(e);
     contenedor.innerHTML = `
       <div class="estado-vacio">
         <div class="estado-vacio__icono">

@@ -20,7 +20,10 @@ export async function adaptarEjemplo(origen) {
 export async function adaptarSheets(origen) {
   // origen: { hoja, columnaLabel, columnaValor }
   const url = urlSheets(origen.hoja);
-  const respuestaTexto = await fetch(url).then(r => r.text());
+  const respuesta = await fetch(url);
+  // Sin este chequeo un 404/500 de Google terminaba en un JSON.parse críptico.
+  if (!respuesta.ok) throw new Error(`Sheets: error ${respuesta.status} al leer la hoja "${origen.hoja}"`);
+  const respuestaTexto = await respuesta.text();
 
   // Google envuelve el JSON en un prefijo como:
   //   /*O_o*/\ngoogle.visualization.Query.setResponse({...});

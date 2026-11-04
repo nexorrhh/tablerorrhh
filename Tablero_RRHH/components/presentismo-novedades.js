@@ -4,13 +4,13 @@
 // No agrega tablas nuevas: lee las mismas rrhh_tardanzas_salidas / rrhh_horas_detalle /
 // rrhh_horas_mensual que ya alimentan Indicadores y Ficha individual.
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { sbGet, sbTraerTodo, sbTraerTodoCache } from '../data/supabase-rest.js';
+import { htmlError } from './util.js';
 import { obtenerClasificacionAusencias, categoriaAusencia } from '../data/clasificacion-ausencias.js';
 import { obtenerClasificacionPuestos, tipoPuesto } from '../data/clasificacion-puestos.js';
 import { CODIGOS_EXCLUIDOS_AUSENTISMO } from './presentismo-indicadores.js';
 import { renderizarPresentismoFichadas } from './presentismo-fichadas.js';
 
-const HDR = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 const EMPRESAS  = ['CIMOMET', 'COMOING'];
 const EMP_LABEL = { CIMOMET: 'Cimomet', COMOING: 'Co.mo.ing' };
 const DIAS_SEM   = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
@@ -110,15 +110,16 @@ async function renderModoTango(contenedor) {
   // Rango de fechas con datos cargados, para no dejar navegar a un día sin sentido.
   let minFecha = null, maxFecha = null;
   try {
-    const [rMin, rMax] = await Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/rrhh_horas_detalle?select=fecha&order=fecha.asc&limit=1`, { headers: HDR }),
-      fetch(`${SUPABASE_URL}/rest/v1/rrhh_horas_detalle?select=fecha&order=fecha.desc&limit=1`, { headers: HDR }),
+    const [jMin, jMax] = await Promise.all([
+      sbGet('rrhh_horas_detalle?select=fecha&order=fecha.asc&limit=1'),
+      sbGet('rrhh_horas_detalle?select=fecha&order=fecha.desc&limit=1'),
     ]);
-    const jMin = rMin.ok ? await rMin.json() : [];
-    const jMax = rMax.ok ? await rMax.json() : [];
     minFecha = jMin[0]?.fecha || null;
     maxFecha = jMax[0]?.fecha || null;
-  } catch {}
+  } catch (e) {
+    contenedor.innerHTML = htmlError('No se pudo consultar el rango de fechas con datos.', e.message);
+    return;
+  }
 
   if (!minFecha || !maxFecha) {
     contenedor.innerHTML = `<div class="pres__vacio">No hay datos cargados todavía. Usá la pestaña "Cargar datos" para importar el archivo de Tango.</div>`;
@@ -131,17 +132,18 @@ async function renderModoTango(contenedor) {
   const empMap = new Map(); // legajo (string) → 'mensual' | 'quincenal' | 'sin_asignar'
   let mapaAusencias = new Map();
   try {
-    const [rEmp, mapaClasif, mapaAus] = await Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/empleados?select=legajo,desc_puesto`, { headers: HDR }),
+    const [empleados, mapaClasif, mapaAus] = await Promise.all([
+      sbTraerTodoCache('empleados?select=legajo,desc_puesto&order=id.asc'),
       obtenerClasificacionPuestos(),
       obtenerClasificacionAusencias(),
     ]);
-    if (rEmp.ok) {
-      const empleados = await rEmp.json();
-      empleados.forEach(e => empMap.set(String(e.legajo), tipoPuesto(e.desc_puesto, mapaClasif)));
-    }
+    empleados.forEach(e => empMap.set(String(e.legajo), tipoPuesto(e.desc_puesto, mapaClasif)));
     mapaAusencias = mapaAus;
-  } catch {}
+  } catch (e) {
+    // Fallback intencional: sin plantel las novedades se muestran igual, solo que todos
+    // caen en el grupo "Sin clasificar".
+    console.warn('Novedades: no se pudo leer el plantel para clasificar puestos', e);
+  }
 
   // Por defecto: ayer (o el último día con datos, si ayer todavía no se cargó / es futuro).
   const ayer = sumarDias(fechaISO(new Date()), -1);
@@ -278,19 +280,17 @@ async function renderModoTango(contenedor) {
     if (!datos) {
       try {
         const periodo = periodoDe(diaActual);
-        const [rTard, rDet, rMen] = await Promise.all([
-          fetch(`${SUPABASE_URL}/rest/v1/rrhh_tardanzas_salidas?fecha=eq.${diaActual}&select=legajo,empresa,tipo,minutos,codigo_justificacion,descripcion_justificacion&order=id.asc`, { headers: HDR }),
-          fetch(`${SUPABASE_URL}/rest/v1/rrhh_horas_detalle?fecha=eq.${diaActual}&select=legajo,empresa,tipo_hora,hs_trabajadas,hs_reales,hs_esperadas&order=id.asc`, { headers: HDR }),
-          fetch(`${SUPABASE_URL}/rest/v1/rrhh_horas_mensual?periodo=eq.${periodo}&select=legajo,empresa,apellido,nombre,departamento,condicion`, { headers: HDR }),
+        const [tardanzas, detalle, roster] = await Promise.all([
+          sbTraerTodo(`rrhh_tardanzas_salidas?fecha=eq.${diaActual}&select=legajo,empresa,tipo,minutos,codigo_justificacion,descripcion_justificacion&order=id.asc`),
+          sbTraerTodo(`rrhh_horas_detalle?fecha=eq.${diaActual}&select=legajo,empresa,tipo_hora,hs_trabajadas,hs_reales,hs_esperadas&order=id.asc`),
+          sbTraerTodoCache(`rrhh_horas_mensual?periodo=eq.${periodo}&select=legajo,empresa,apellido,nombre,departamento,condicion&order=id.asc`),
         ]);
-        datos = {
-          tardanzas: rTard.ok ? await rTard.json() : [],
-          detalle:   rDet.ok  ? await rDet.json()  : [],
-          roster:    rMen.ok  ? await rMen.json()  : [],
-        };
+        datos = { tardanzas, detalle, roster };
         cacheDia.set(diaActual, datos);
-      } catch {
-        datos = { tardanzas: [], detalle: [], roster: [] };
+      } catch (e) {
+        // No se cachea: al volver a este día se reintenta.
+        contenido.innerHTML = htmlError('No se pudieron cargar las novedades de este día.', e.message);
+        return;
       }
     }
     render(datos);
@@ -315,22 +315,22 @@ async function renderModoTango(contenedor) {
     if (!datos) {
       try {
         const periodos = [...new Set([periodoDe(lunes), periodoDe(viernes)])];
-        const [rTard, rDet, rMen] = await Promise.all([
-          fetch(`${SUPABASE_URL}/rest/v1/rrhh_tardanzas_salidas?fecha=gte.${lunes}&fecha=lte.${viernes}&select=fecha,legajo,empresa,tipo,minutos,codigo_justificacion,descripcion_justificacion&order=id.asc`, { headers: HDR }),
-          fetch(`${SUPABASE_URL}/rest/v1/rrhh_horas_detalle?fecha=gte.${lunes}&fecha=lte.${viernes}&select=fecha,legajo,empresa,tipo_hora,hs_trabajadas,hs_reales,hs_esperadas&order=id.asc`, { headers: HDR }),
-          fetch(`${SUPABASE_URL}/rest/v1/rrhh_horas_mensual?periodo=in.(${periodos.join(',')})&select=legajo,empresa,apellido,nombre,departamento,condicion`, { headers: HDR }),
+        // Paginado completo: una semana de rrhh_horas_detalle supera fácil las 1000 filas.
+        const [tardanzas, detalle, roster] = await Promise.all([
+          sbTraerTodo(`rrhh_tardanzas_salidas?fecha=gte.${lunes}&fecha=lte.${viernes}&select=fecha,legajo,empresa,tipo,minutos,codigo_justificacion,descripcion_justificacion&order=id.asc`),
+          sbTraerTodo(`rrhh_horas_detalle?fecha=gte.${lunes}&fecha=lte.${viernes}&select=fecha,legajo,empresa,tipo_hora,hs_trabajadas,hs_reales,hs_esperadas&order=id.asc`),
+          sbTraerTodoCache(`rrhh_horas_mensual?periodo=in.(${periodos.join(',')})&select=legajo,empresa,apellido,nombre,departamento,condicion&order=id.asc`),
         ]);
-        const tardanzas = rTard.ok ? await rTard.json() : [];
-        const detalle   = rDet.ok  ? await rDet.json()  : [];
-        const roster    = rMen.ok  ? await rMen.json()  : [];
         const porFecha = new Map();
         for (let f = lunes; f <= viernes; f = sumarDias(f, 1)) porFecha.set(f, { fecha: f, tardanzas: [], detalle: [] });
         tardanzas.forEach(t => porFecha.get(t.fecha)?.tardanzas.push(t));
         detalle.forEach(d => porFecha.get(d.fecha)?.detalle.push(d));
         datos = { dias: [...porFecha.values()], roster };
         cacheSemana.set(lunes, datos);
-      } catch {
-        datos = { dias: [], roster: [] };
+      } catch (e) {
+        // No se cachea: al volver a esta semana se reintenta.
+        contenido.innerHTML = htmlError('No se pudieron cargar las novedades de esta semana.', e.message);
+        return;
       }
     }
     renderSemana(datos);

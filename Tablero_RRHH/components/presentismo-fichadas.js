@@ -8,11 +8,9 @@
 // que se sube el archivo y no queda historial. El seguimiento de tardanzas repetidas en
 // el tiempo ya lo cubre "Ficha individual" / "Por persona" con los datos que vienen de Tango.
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { sbTraerTodoCache } from '../data/supabase-rest.js';
 import { obtenerClasificacionPuestos, tipoPuesto } from '../data/clasificacion-puestos.js';
 import { obtenerExentosFichada } from '../data/fichadas-exentos.js';
-
-const HDR = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 
 const TIPO_LABEL   = { quincenal: 'Quincenales — Personal de taller', mensual: 'Mensuales — Personal administrativo' };
 const ESTADO_LABEL = { a_tiempo: 'A tiempo', tarde: 'Tarde', sin_fichar: 'No fichó' };
@@ -162,12 +160,14 @@ export async function renderizarPresentismoFichadas(contenedor) {
 
   let empleados = [], mapaClasif = new Map(), exentos = [];
   try {
-    const [rE, mc, ex] = await Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/empleados?select=legajo,apellido_y_nombre,empresa,desc_puesto,activo&limit=2000`, { headers: HDR }),
+    const [emps, mc, ex] = await Promise.all([
+      sbTraerTodoCache('empleados?select=legajo,apellido_y_nombre,empresa,desc_puesto,activo&order=id.asc'),
       obtenerClasificacionPuestos(),
-      obtenerExentosFichada(),
+      // Fallback intencional: sin la lista de exentos el informe sirve igual (solo muestra a
+      // esas personas como "No fichó"), así que no se bloquea la pantalla.
+      obtenerExentosFichada().catch(e => { console.warn('No se pudo leer la lista de exentos de fichada', e); return []; }),
     ]);
-    empleados = rE.ok ? await rE.json() : [];
+    empleados = emps;
     mapaClasif = mc;
     exentos = ex;
   } catch (e) {

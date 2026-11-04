@@ -9,7 +9,8 @@
 // desempeno-cargar.js, montarEvaluacionPrueba en desempeno-prueba.js) — este módulo solo posee la
 // búsqueda, las dos listas de pendientes y el selector de año, y delega el formulario en sí.
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { sbTraerTodo, sbTraerTodoCache } from '../data/supabase-rest.js';
+import { htmlError } from './util.js';
 import { obtenerClasificacionPuestos, tipoPuesto, normPuesto } from '../data/clasificacion-puestos.js';
 import { obtenerConfigDesempeno, obtenerConfigPorPuesto, CONFIG_DEFAULT } from '../data/desempeno-config.js';
 import { obtenerReingresosManualesSet } from '../data/reingresos-manuales.js';
@@ -21,8 +22,6 @@ import {
 } from './desempeno-cargar.js';
 import { montarEvaluacionPrueba, estadoPlazo } from './desempeno-prueba.js';
 
-const HDR = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
-
 function eP(s) { return (s || '').toString().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function normTxt(s) { return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
 function fmtFecha(iso) { const [a, m, d] = iso.split('-'); return `${d}/${m}/${a}`; }
@@ -32,8 +31,8 @@ export async function renderizarDesempenoEvaluaciones(contenedor) {
 
   let empleados = [], mapaClasif = new Map(), config = CONFIG_DEFAULT, manualSet = new Set(), configPorPuesto = new Map(), puestosExcluidos = new Set(), forzadosMap = new Map();
   try {
-    const [rE, mc, cfg, ms, cpp, pe, fs] = await Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/empleados?select=legajo,apellido_y_nombre,empresa,desc_puesto,activo,fecha_ingreso,creado_en&limit=2000`, { headers: HDR }),
+    const [emp, mc, cfg, ms, cpp, pe, fs] = await Promise.all([
+      sbTraerTodoCache('empleados?select=legajo,apellido_y_nombre,empresa,desc_puesto,activo,fecha_ingreso,creado_en&order=id.asc'),
       obtenerClasificacionPuestos(),
       obtenerConfigDesempeno(),
       obtenerReingresosManualesSet(),
@@ -41,7 +40,7 @@ export async function renderizarDesempenoEvaluaciones(contenedor) {
       obtenerPuestosExcluidosDesempeno(),
       obtenerPruebaForzadaMap(),
     ]);
-    empleados = rE.ok ? await rE.json() : [];
+    empleados = emp;
     mapaClasif = mc;
     config = cfg;
     manualSet = ms;
@@ -49,7 +48,7 @@ export async function renderizarDesempenoEvaluaciones(contenedor) {
     puestosExcluidos = pe;
     forzadosMap = fs;
   } catch (e) {
-    contenedor.innerHTML = `<div class="pres__vacio">Error al cargar el plantel: ${eP(e.message)}</div>`;
+    contenedor.innerHTML = htmlError('Error al cargar el plantel.', e.message);
     return;
   }
 
@@ -93,21 +92,16 @@ export async function renderizarDesempenoEvaluaciones(contenedor) {
 
   async function obtenerEvaluadosPrueba() {
     if (evaluadosPruebaSet) return evaluadosPruebaSet;
-    try {
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/iso_evaluaciones_periodo_prueba?motivo=eq.ingreso&select=legajo,empresa`, { headers: HDR });
-      const filas = r.ok ? await r.json() : [];
-      evaluadosPruebaSet = new Set(filas.map(f => `${f.legajo}|${f.empresa}`));
-    } catch { evaluadosPruebaSet = new Set(); }
+    // Lanza si falla: antes quedaba un Set vacío y TODOS aparecían como pendientes.
+    const filas = await sbTraerTodo('iso_evaluaciones_periodo_prueba?motivo=eq.ingreso&select=legajo,empresa&order=id.asc');
+    evaluadosPruebaSet = new Set(filas.map(f => `${f.legajo}|${f.empresa}`));
     return evaluadosPruebaSet;
   }
   async function obtenerEvaluadosAnual(anio) {
     let set = cacheEvalsAnual.get(anio);
     if (set) return set;
-    try {
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/iso_evaluaciones_desempeno?anio=eq.${anio}&select=legajo,empresa`, { headers: HDR });
-      const filas = r.ok ? await r.json() : [];
-      set = new Set(filas.map(f => `${f.legajo}|${f.empresa}`));
-    } catch { set = new Set(); }
+    const filas = await sbTraerTodo(`iso_evaluaciones_desempeno?anio=eq.${anio}&select=legajo,empresa&order=id.asc`);
+    set = new Set(filas.map(f => `${f.legajo}|${f.empresa}`));
     cacheEvalsAnual.set(anio, set);
     return set;
   }
@@ -137,7 +131,11 @@ export async function renderizarDesempenoEvaluaciones(contenedor) {
 
   async function renderPendientesPrueba() {
     pendPruebaWrap.innerHTML = '<div class="pres__loading">Cargando pendientes…</div>';
-    const evalSet = await obtenerEvaluadosPrueba();
+    let evalSet;
+    try { evalSet = await obtenerEvaluadosPrueba(); } catch (e) {
+      pendPruebaWrap.innerHTML = htmlError('No se pudieron cargar las evaluaciones de período de prueba.', e.message);
+      return;
+    }
     const pendientes = activos
       .filter(p => enPeriodoPrueba(p, hoy, manualSet, forzadosMap) && !evalSet.has(`${p.legajo}|${p.empresa}`))
       .map(p => ({ ...p, dias: diasDesdeIngreso(p, hoy) }))
@@ -178,7 +176,11 @@ export async function renderizarDesempenoEvaluaciones(contenedor) {
   async function renderPendientesAnual() {
     const anio = +selAnio.value;
     pendAnualWrap.innerHTML = '<div class="pres__loading">Cargando pendientes…</div>';
-    const evalSet = await obtenerEvaluadosAnual(anio);
+    let evalSet;
+    try { evalSet = await obtenerEvaluadosAnual(anio); } catch (e) {
+      pendAnualWrap.innerHTML = htmlError('No se pudieron cargar las evaluaciones anuales.', e.message);
+      return;
+    }
     const pendientes = activos
       .filter(p => corresponde(p, anio, mapaClasif, manualSet, puestosExcluidos)
         && !enPeriodoPrueba(p, hoy, manualSet, forzadosMap)

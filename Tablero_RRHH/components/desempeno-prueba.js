@@ -9,7 +9,8 @@
 // disparador "cambio de función" queda pendiente de una fase futura: hoy el sistema no guarda
 // historial de puesto, así que no hay forma de detectar solo un cambio de función.
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { sbGet, sbUpsert } from '../data/supabase-rest.js';
+import { htmlError } from './util.js';
 import { obtenerUsuario } from '../data/usuario-activo.js';
 import {
   resultadoDe, RESULTADO_LABEL, RESULTADO_COLOR, esReingreso,
@@ -20,9 +21,6 @@ import { generarInformePruebaPDF } from './desempeno-informe.js';
 import { marcarReingresoManual } from '../data/reingresos-manuales.js';
 import { obtenerSeguridadHyS } from '../data/seguridad-hys.js';
 import { campoSeguridadHyS } from './campo-seguridad-hys.js';
-
-const HDR = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
-const HDR_JSON = { ...HDR, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' };
 
 export const EMP_LABEL = { CIMOMET: 'Cimomet', COMOING: 'Co.mo.ing' };
 // VENTANA_DIAS / VENTANA_VISIBLE_DIAS / diasDesdeIngreso ahora viven en desempeno-cargar.js (las
@@ -72,12 +70,11 @@ function fechaISO(d) { return d.toISOString().slice(0, 10); }
 export async function datosAutomaticos(persona, hoy) {
   const desdePeriodo = `${persona.fecha_ingreso.slice(0, 7)}-01`;
   const hastaPeriodo = `${fechaISO(hoy).slice(0, 7)}-01`;
-  const [rMen, rTard] = await Promise.all([
-    fetch(`${SUPABASE_URL}/rest/v1/rrhh_horas_mensual?legajo=eq.${persona.legajo}&empresa=eq.${persona.empresa}&periodo=gte.${desdePeriodo}&periodo=lte.${hastaPeriodo}&select=dias_presentes,dias_ausentes_nojust`, { headers: HDR }),
-    fetch(`${SUPABASE_URL}/rest/v1/rrhh_tardanzas_salidas?legajo=eq.${persona.legajo}&empresa=eq.${persona.empresa}&fecha=gte.${persona.fecha_ingreso}&fecha=lte.${fechaISO(hoy)}&tipo=in.(tarde,temprano)&select=fecha`, { headers: HDR }),
+  // Lanza si falla: antes un error daba presentismo/puntualidad "sin datos" sin avisar.
+  const [filasMen, filasTard] = await Promise.all([
+    sbGet(`rrhh_horas_mensual?legajo=eq.${persona.legajo}&empresa=eq.${persona.empresa}&periodo=gte.${desdePeriodo}&periodo=lte.${hastaPeriodo}&select=dias_presentes,dias_ausentes_nojust`),
+    sbGet(`rrhh_tardanzas_salidas?legajo=eq.${persona.legajo}&empresa=eq.${persona.empresa}&fecha=gte.${persona.fecha_ingreso}&fecha=lte.${fechaISO(hoy)}&tipo=in.(tarde,temprano)&select=fecha`),
   ]);
-  const filasMen = rMen.ok ? await rMen.json() : [];
-  const filasTard = rTard.ok ? await rTard.json() : [];
   const totalDiasPres   = filasMen.reduce((s, f) => s + (+f.dias_presentes || 0), 0);
   const totalDiasNojust = filasMen.reduce((s, f) => s + (+f.dias_ausentes_nojust || 0), 0);
   const diasConIncidente = new Set(filasTard.map(f => f.fecha)).size;
@@ -112,8 +109,8 @@ export async function montarEvaluacionPrueba(formEl, persona, ctx) {
   let automaticos = { presentismoPct: null, puntualidadPct: null, diasAusentes: 0, diasConIncidente: 0 };
   let seguridadHyS = null;
   try {
-    const [r, auto, seg] = await Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/iso_evaluaciones_periodo_prueba?legajo=eq.${persona.legajo}&empresa=eq.${persona.empresa}&motivo=eq.ingreso&select=*`, { headers: HDR }),
+    const [filas, auto, seg] = await Promise.all([
+      sbGet(`iso_evaluaciones_periodo_prueba?legajo=eq.${persona.legajo}&empresa=eq.${persona.empresa}&motivo=eq.ingreso&select=*`),
       datosAutomaticos(personaCalculo, hoy),
       // Mismo período que presentismo/puntualidad: desde el ingreso (o la fecha efectiva de un
       // cambio de función) hasta hoy.
@@ -121,11 +118,15 @@ export async function montarEvaluacionPrueba(formEl, persona, ctx) {
         ? obtenerSeguridadHyS(persona.legajo, persona.empresa, personaCalculo.fecha_ingreso.slice(0, 7), fechaISO(hoy).slice(0, 7))
         : null,
     ]);
-    const filas = r.ok ? await r.json() : [];
     previa = filas[0] || null;
     automaticos = auto;
     seguridadHyS = seg;
-  } catch {}
+  } catch (e) {
+    // Antes se mostraba el formulario vacío igual: se podía pisar una evaluación ya guardada
+    // creyendo que no existía.
+    formEl.innerHTML = htmlError('Error al cargar los datos.', e.message);
+    return;
+  }
   renderForm(persona, previa, automaticos);
 
   function renderForm(persona, previa, automaticos) {
@@ -322,10 +323,7 @@ export async function montarEvaluacionPrueba(formEl, persona, ctx) {
           evaluado_por: obtenerUsuario()?.nombre || null,
           fecha_evaluacion: new Date().toISOString().slice(0, 10),
         };
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/iso_evaluaciones_periodo_prueba?on_conflict=legajo,empresa,motivo`, {
-          method: 'POST', headers: HDR_JSON, body: JSON.stringify(body),
-        });
-        if (!r.ok) throw new Error(`Supabase: error ${r.status}`);
+        await sbUpsert('iso_evaluaciones_periodo_prueba?on_conflict=legajo,empresa,motivo', body);
         estadoEl.innerHTML = '<p class="pres__msg-exito">✓ Evaluación guardada.</p>';
         btnGuardar.disabled = false;
         btnGuardar.textContent = 'Actualizar evaluación';

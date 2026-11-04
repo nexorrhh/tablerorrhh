@@ -1,18 +1,13 @@
 import { metricas }         from '../config/metricas.js';
 import { crearTarjetaStat } from './tarjeta-stat.js';
-import { obtenerTabla }     from '../data/cliente-supabase.js';
+import { sbGet, sbTraerTodo, sbContar } from '../data/supabase-rest.js';
+import { MESES, MESES_CORTO, htmlError } from './util.js';
 import {
-  SUPABASE_URL, SUPABASE_ANON_KEY,
   SHEET_ID_POSTULANTES, SHEET_NOMBRE_POSTULANTES,
 } from '../data/fuentes.js';
 import { renderizarWidgetCumpleanos, renderizarWidgetAniversarios } from './cumpleanos-antiguedad.js';
 import { obtenerClasificacionPuestos, tipoPuesto } from '../data/clasificacion-puestos.js';
 import { obtenerPermisosPendientes } from '../data/nexo-permisos.js';
-
-const HDR = {
-  apikey: SUPABASE_ANON_KEY,
-  Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-};
 
 const ADMIN_EMAIL = 'cimolay47@gmail.com';
 
@@ -107,8 +102,8 @@ export async function renderizarPanel(contenedor, cambiarModulo) {
 
   // ── Carga en paralelo ───────────────────────────────────────────────────────
   const [rEmpleados, rFechas, rPreselMeses, rPostMeses, rIngresos, rContrPanel, rLicPanel, rInstPanel, rClasif, rAusentismo, rPermisos] = await Promise.allSettled([
-    obtenerTabla('v_empleados_activos', 'empresa,desc_puesto'),
-    obtenerTabla('v_resumen_fecha',     'fecha,tipo,pct_cumplimiento'),
+    sbTraerTodo('v_empleados_activos?select=empresa,desc_puesto&order=id.asc'),
+    sbTraerTodo('v_resumen_fecha?select=fecha,tipo,pct_cumplimiento&order=fecha.asc,tipo.asc'),
     fetchPreseleccionadosPorMes(hoy),
     obtenerDatosPostulantesMeses(),
     fetchIngresosMes(hoy),
@@ -119,6 +114,14 @@ export async function renderizarPanel(contenedor, cambiarModulo) {
     fetchAusentismoUltimoPeriodo(),
     obtenerPermisosPendientes(),
   ]);
+
+  // Cada tarjeta maneja su propio fallo; acá solo se deja rastro en consola de qué falló.
+  [rEmpleados, rFechas, rPreselMeses, rPostMeses, rIngresos, rContrPanel, rLicPanel, rInstPanel, rAusentismo, rPermisos]
+    .forEach(r => { if (r.status === 'rejected') console.error('Panel:', r.reason); });
+  if (rClasif.status === 'rejected') {
+    // Secundario: sin clasificación todos cuentan como "sin clasificar", el total sigue siendo válido.
+    console.warn('Panel: no se pudo leer la clasificación de puestos', rClasif.reason);
+  }
 
   // Reutiliza las mismas fuentes y definiciones que los módulos de detalle.
   actualizarKpiAusentismo(contenedor, rAusentismo);
@@ -176,7 +179,11 @@ export async function renderizarPanel(contenedor, cambiarModulo) {
   }
 
   const vencWrap = contenedor.querySelector('#panel-venc-wrap');
-  if (vencWrap) renderVencimientosWidget(vencWrap, allVencItems, anioHoyV);
+  if (vencWrap) {
+    // Si fallaron las tres fuentes, "Sin vencimientos cargados" sería falso.
+    if (fuentesVencimientosOk) renderVencimientosWidget(vencWrap, allVencItems, anioHoyV);
+    else vencWrap.innerHTML = htmlError('No se pudieron cargar los vencimientos.');
+  }
   contenedor.querySelector('#panel-venc-link')?.addEventListener('click', () => {
     if (typeof cambiarModulo === 'function') cambiarModulo('vencimientos');
   });
@@ -209,11 +216,14 @@ export async function renderizarPanel(contenedor, cambiarModulo) {
         descripcionEl.textContent = `${cimomet} Cimomet · ${comoing} Co.mo.ing · ${mensuales} mensuales · ${quincenales} quincenales${sinClasificar}`;
       }
     }
+  } else {
+    actualizarKpi(contenedor, 'plantel-activo', '—', 'no se pudo consultar el plantel');
   }
 
   // ── KPI: Ingresos este mes ───────────────────────────────────────────────────
   const kpiIngEl = contenedor.querySelector('[data-metrica="ingresos-mes"] .tarjeta-stat__valor');
   if (kpiIngEl && rIngresos.status === 'fulfilled') kpiIngEl.textContent = rIngresos.value;
+  else if (rIngresos.status === 'rejected') actualizarKpi(contenedor, 'ingresos-mes', '—', 'no se pudieron consultar los ingresos');
 
   const sabados = rFechas.status === 'fulfilled'
     ? rFechas.value.filter(f => f.tipo === 'Sabado').sort((a, b) => a.fecha.localeCompare(b.fecha))
@@ -228,6 +238,8 @@ export async function renderizarPanel(contenedor, cambiarModulo) {
     );
   } else if (rFechas.status === 'fulfilled') {
     actualizarKpi(contenedor, 'presentismo-reciente', '—', 'sin sábados registrados');
+  } else {
+    actualizarKpi(contenedor, 'presentismo-reciente', '—', 'no se pudo consultar el presentismo');
   }
 
   // ── Tendencia presentismo ───────────────────────────────────────────────────
@@ -275,12 +287,16 @@ export async function renderizarPanel(contenedor, cambiarModulo) {
     actualizarKpi(contenedor, 'preseleccionados-mes', '—', 'no se pudieron consultar los revisados');
   }
 
-  if (postTotalEl) {
+  if (postTotalEl && rPostMeses.status === 'fulfilled') {
     postTotalEl.innerHTML =
       `<strong>${totalSistema.toLocaleString('es-AR')}</strong> en el sistema`;
   }
 
-  if (postWrap) {
+  // El gráfico cruza las dos fuentes (Sheets + preseleccionados): con una sola, las barras
+  // de "sin procesar" quedarían mal calculadas, así que se muestra el error en su lugar.
+  if (postWrap && (rPostMeses.status === 'rejected' || rPreselMeses.status === 'rejected')) {
+    postWrap.innerHTML = htmlError('No se pudieron cargar los datos de postulantes.');
+  } else if (postWrap) {
     // Armar arrays para los 12 meses
     const meses12   = ultimos12Meses(hoy);
     const labels    = meses12.map(m => fmtMesLabel(m.anio, m.mes));
@@ -440,24 +456,15 @@ async function fetchIngresosMes(hoy) {
   const desde = `${y}-${m}-01`;
   const ultimoDia = new Date(y, hoy.getMonth() + 1, 0).getDate();
   const hasta = `${y}-${m}-${String(ultimoDia).padStart(2, '0')}`;
-  const r = await fetch(
-    `${SUPABASE_URL}/rest/v1/empleados?fecha_ingreso=gte.${desde}&fecha_ingreso=lte.${hasta}&select=id`,
-    { headers: HDR }
-  );
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  return (await r.json()).length;
+  return sbContar(`empleados?fecha_ingreso=gte.${desde}&fecha_ingreso=lte.${hasta}&select=id`);
 }
 
 async function fetchPreseleccionadosPorMes(hoy) {
   // Trae los últimos 12 meses completos desde Supabase
   const inicio = new Date(hoy.getFullYear(), hoy.getMonth() - 11, 1).toISOString();
 
-  const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/preseleccionados?select=estado,created_at&created_at=gte.${inicio}`,
-    { headers: HDR }
-  );
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  const data = await res.json();
+  // preseleccionados ya supera las 1000 filas: paginado completo.
+  const data = await sbTraerTodo(`preseleccionados?select=estado,created_at&created_at=gte.${inicio}&order=id.asc`);
 
   const porMes = new Map(); // clave "anio-mes0" → { activo, descartado }
   data.forEach(d => {
@@ -582,8 +589,7 @@ function claveMs({ anio, mes }) {
 
 // Etiqueta para eje X: "Jun '26"
 function fmtMesLabel(anio, mes) {
-  const ABREV = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-  return `${ABREV[mes]} '${String(anio).slice(2)}`;
+  return `${MESES_CORTO[mes]} '${String(anio).slice(2)}`;
 }
 
 function fmtFechaMini(f) {
@@ -614,7 +620,11 @@ function etiquetaPeriodo(periodo) {
 }
 
 function actualizarKpiAusentismo(contenedor, resultado) {
-  if (resultado.status !== 'fulfilled' || !resultado.value.length) {
+  if (resultado.status !== 'fulfilled') {
+    actualizarKpi(contenedor, 'ausentismo', '—', 'no se pudo consultar el ausentismo');
+    return;
+  }
+  if (!resultado.value.length) {
     actualizarKpi(contenedor, 'ausentismo', '—', 'sin datos de presentismo cargados');
     return;
   }
@@ -649,32 +659,19 @@ function actualizarKpiPermisos(contenedor, resultado) {
 }
 
 async function fetchVencimientosPanel(tabla, select) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${tabla}?select=${select}`, { headers: HDR });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  return r.json();
+  return sbTraerTodo(`${tabla}?select=${select}&order=id.asc`);
 }
 
 async function fetchAusentismoUltimoPeriodo() {
-  const base = `${SUPABASE_URL}/rest/v1/rrhh_horas_mensual`;
-  const ultimo = await fetch(`${base}?select=periodo&order=periodo.desc&limit=1`, { headers: HDR });
-  if (!ultimo.ok) throw new Error('No se pudo consultar el último período de presentismo');
-  const [fila] = await ultimo.json();
+  const [fila] = await sbGet('rrhh_horas_mensual?select=periodo&order=periodo.desc&limit=1');
   if (!fila?.periodo) return [];
 
-  const detalle = await fetch(
-    `${base}?periodo=eq.${fila.periodo}&select=periodo,dias_presentes,dias_ausentes_nojust`,
-    { headers: HDR },
-  );
-  if (!detalle.ok) throw new Error('No se pudo consultar el ausentismo del último período');
-  return detalle.json();
+  return sbTraerTodo(`rrhh_horas_mensual?periodo=eq.${fila.periodo}&select=periodo,dias_presentes,dias_ausentes_nojust&order=id.asc`);
 }
 
 function eP(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 // ── Widget de vencimientos tipo cumpleaños ────────────────────────────────────
-
-const MESES_V = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
-                 'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
 function renderVencimientosWidget(wrap, items, anioHoy) {
   if (!items.length) {
@@ -703,7 +700,7 @@ function renderVencimientosWidget(wrap, items, anioHoy) {
                  : tieneProximo ? 'cump__widget-mes-sep--proximo'
                  : '';
 
-    const label = anio !== anioHoy ? `${MESES_V[mes]} ${anio}` : MESES_V[mes];
+    const label = anio !== anioHoy ? `${MESES[mes]} ${anio}` : MESES[mes];
     html += `<div class="cump__widget-mes-sep ${sepMod}">${label}</div>`;
 
     mesItems.forEach(item => {

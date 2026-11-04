@@ -14,9 +14,10 @@
 
 import { crearHelpersSupabase, crearToast, dias, badge, esMesActual, fmtFecha, e, v, errHtml, estadoAutorizacionInfo } from './venc-comun.js';
 import { cerrarConAnimacion } from './modal-animado.js';
+import { MESES } from './util.js';
 
 const TABLA = 'pagos_vencimiento';
-const { sbGet, sbInsert, sbUpdate, sbDelete } = crearHelpersSupabase(TABLA);
+const { sbGet, sbTraerTodo, sbInsert, sbUpdate, sbDelete } = crearHelpersSupabase(TABLA);
 
 const TABLA_PLANT = 'pagos_recurrentes';
 const plant = crearHelpersSupabase(TABLA_PLANT);
@@ -34,8 +35,6 @@ const EMPRESAS = [
   { valor: 'COMOING', label: 'Co.mo.ing S.R.L.' },
 ];
 
-const MESES_LARGO = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-
 function infoTipo(t) { return TIPOS.find(x => x.valor === t) ?? TIPOS[0]; }
 function labelEmpresa(v) { return EMPRESAS.find(x => x.valor === v)?.label ?? '—'; }
 
@@ -44,7 +43,7 @@ function periodoDe(anio, mesIndice0) { return `${anio}-${String(mesIndice0 + 1).
 function labelPeriodo(periodo) {
   if (!periodo) return 'Sin período';
   const [y, m] = periodo.split('-').map(Number);
-  return `${MESES_LARGO[m - 1]} ${y}`;
+  return `${MESES[m - 1]} ${y}`;
 }
 
 // Cuántos meses de anticipación se generan sobre el mes actual (1 = ya ves el mes que
@@ -55,7 +54,10 @@ const MESES_ADELANTO_RECURRENTES = 1;
 //    plantilla activa. No copia día ni monto — eso lo carga la persona a mano cada mes. ──
 async function generarPendientesRecurrentes() {
   let plantillas;
-  try { plantillas = await plant.sbGet('activo=eq.true'); } catch { return; }
+  // Generar placeholders es secundario: si falla, la lista se muestra igual (y cargar()
+  // ya avisa si Supabase está caído).
+  try { plantillas = await plant.sbGet('activo=eq.true'); }
+  catch (err) { console.warn('Pagos: no se pudieron leer las plantillas recurrentes', err); return; }
   if (!plantillas.length) return;
 
   const hoy = new Date();
@@ -63,7 +65,8 @@ async function generarPendientesRecurrentes() {
 
   for (const pl of plantillas) {
     let ultimas = [];
-    try { ultimas = await sbGet(`recurrente_id=eq.${pl.id}&order=periodo.desc&limit=1`); } catch { continue; }
+    try { ultimas = await sbGet(`recurrente_id=eq.${pl.id}&order=periodo.desc&limit=1`); }
+    catch (err) { console.warn('Pagos: no se pudo leer el último período de una plantilla', err); continue; }
 
     let cursor;
     if (ultimas.length && ultimas[0].periodo) {
@@ -108,14 +111,16 @@ export async function renderizarVencimientosPagos(contenedor) {
   async function cargar() {
     try {
       const [regs, plants, comprobantesArca] = await Promise.all([
-        sbGet('order=periodo.asc,fecha_vencimiento.asc'),
+        // Paginado completo: las dos tablas crecen todos los meses y superan las 1000 filas.
+        sbTraerTodo('order=periodo.asc,fecha_vencimiento.asc,id.asc'),
         plant.sbGet('order=concepto.asc'),
-        arcaComp.sbGet('select=id,estado_autorizacion'),
+        arcaComp.sbTraerTodo('select=id,estado_autorizacion&order=id.asc'),
       ]);
       registros  = regs;
       plantillas = plants;
       estadoArcaPorComprobante = new Map(comprobantesArca.map(c => [c.id, c.estado_autorizacion]));
-    } catch {
+    } catch (err) {
+      console.error(err);
       contenedor.innerHTML = errHtml('No se pudieron cargar los pagos.');
       return;
     }
@@ -482,9 +487,12 @@ export async function renderizarVencimientosPagos(contenedor) {
   // y era Impuesto" en todos los meses de una).
   async function actualizarVinculadosDePlantilla(plantillaId, cambios) {
     let vinculados = [];
-    try { vinculados = await sbGet(`recurrente_id=eq.${plantillaId}`); } catch { return; }
+    // La plantilla ya quedó corregida; propagar a los vinculados es "mejor esfuerzo".
+    try { vinculados = await sbGet(`recurrente_id=eq.${plantillaId}`); }
+    catch (err) { console.warn('Pagos: no se pudieron leer los vencimientos vinculados', err); return; }
     for (const p of vinculados) {
-      try { await sbUpdate(p.id, cambios); } catch { /* seguimos con el resto */ }
+      try { await sbUpdate(p.id, cambios); }
+      catch (err) { console.warn('Pagos: no se pudo actualizar un vencimiento vinculado', err); /* seguimos con el resto */ }
     }
   }
 

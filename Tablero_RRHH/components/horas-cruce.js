@@ -7,12 +7,11 @@
 // Archivo autocontenido a propósito — si en algún momento hay que sacarlo alcanza con borrar
 // este archivo + su entrada en config/navegacion.js + su rama en app.js, sin tocar nada más.
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { sbTraerTodo, sbTraerTodoCache } from '../data/supabase-rest.js';
+import { MESES, htmlError } from './util.js';
 import { obtenerClasificacionPuestos, tipoPuesto } from '../data/clasificacion-puestos.js';
 import { crearOrdenTabla } from './tabla-ordenable.js';
 
-const HDR = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
-const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const TIPO_LABEL = { mensual: 'Mensual', quincenal: 'Quincenal', sin_asignar: 'Sin asignar' };
 
 const EMP_LABEL = { CIMOMET: 'Cimomet', COMOING: 'Co.mo.ing' };
@@ -27,43 +26,25 @@ function fmtNum(n) { return Math.round((n || 0) * 10) / 10; }
 function eP(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function clave(empresa, legajo) { return `${empresa}|${legajo}`; }
 
-async function fetchTodasFilas(url) {
-  const PAGE = 1000;
-  let offset = 0, out = [];
-  for (;;) {
-    const sep = url.includes('?') ? '&' : '?';
-    const r = await fetch(`${url}${sep}limit=${PAGE}&offset=${offset}`, { headers: HDR });
-    if (!r.ok) break;
-    const rows = await r.json();
-    out = out.concat(rows);
-    if (rows.length < PAGE) break;
-    offset += PAGE;
-  }
-  return out;
-}
-
 export async function renderizarHorasCruce(contenedor) {
   contenedor.innerHTML = '<div class="pres__loading">Cargando…</div>';
 
   let rawTango = [], rawOT = [];
   const empMap = new Map(); // `${empresa}|${legajo}` → tipo ('mensual' | 'quincenal' | 'sin_asignar')
   try {
-    const [tango, ot, empRes, mapaClasif] = await Promise.all([
-      fetchTodasFilas(`${SUPABASE_URL}/rest/v1/rrhh_horas_mensual?select=legajo,apellido,nombre,departamento,empresa,periodo,hs_normales,hs_extra50,hs_extra100,hs_vac_trabajadas&order=id.asc`),
-      fetchTodasFilas(`${SUPABASE_URL}/rest/v1/horas_ot_detalle?select=legajo,empresa,periodo,fecha,nombre,horas,anomalo&order=id.asc`),
-      fetch(`${SUPABASE_URL}/rest/v1/empleados?select=legajo,empresa,desc_puesto`, { headers: HDR }),
+    const [tango, ot, empleadosPuesto, mapaClasif] = await Promise.all([
+      sbTraerTodoCache('rrhh_horas_mensual?select=legajo,apellido,nombre,departamento,empresa,periodo,hs_normales,hs_extra50,hs_extra100,hs_vac_trabajadas&order=id.asc'),
+      sbTraerTodo('horas_ot_detalle?select=legajo,empresa,periodo,fecha,nombre,horas,anomalo&order=id.asc'),
+      sbTraerTodoCache('empleados?select=legajo,empresa,desc_puesto&order=id.asc'),
       obtenerClasificacionPuestos(),
     ]);
     rawTango = tango;
     rawOT = ot;
-    if (empRes.ok) {
-      const empleadosPuesto = await empRes.json();
-      // Keyed por empresa+legajo (no solo legajo): Cimomet y Co.mo.ing numeran sus legajos por
-      // separado, así que el mismo número puede corresponder a dos personas distintas.
-      empleadosPuesto.forEach(emp => empMap.set(`${emp.empresa}|${emp.legajo}`, tipoPuesto(emp.desc_puesto, mapaClasif)));
-    }
-  } catch {
-    contenedor.innerHTML = `<div class="pres__vacio">No se pudieron cargar los datos.</div>`;
+    // Keyed por empresa+legajo (no solo legajo): Cimomet y Co.mo.ing numeran sus legajos por
+    // separado, así que el mismo número puede corresponder a dos personas distintas.
+    empleadosPuesto.forEach(emp => empMap.set(`${emp.empresa}|${emp.legajo}`, tipoPuesto(emp.desc_puesto, mapaClasif)));
+  } catch (e) {
+    contenedor.innerHTML = htmlError('No se pudieron cargar los datos.', e.message);
     return;
   }
 
@@ -99,10 +80,13 @@ export async function renderizarHorasCruce(contenedor) {
   // pasa naturalmente cuando el mes en curso no cerró todavía, no es un error real).
   let rawTangoDetalle = [];
   try {
-    rawTangoDetalle = await fetchTodasFilas(
-      `${SUPABASE_URL}/rest/v1/rrhh_horas_detalle?select=periodo,fecha,legajo&periodo=in.(${periodosComunes.join(',')})&order=id.asc`
+    rawTangoDetalle = await sbTraerTodo(
+      `rrhh_horas_detalle?select=periodo,fecha,legajo&periodo=in.(${periodosComunes.join(',')})&order=id.asc`
     );
-  } catch { /* el aviso de corte de mes es un plus — si falla, seguimos sin él */ }
+  } catch (e) {
+    // El aviso de corte de mes es un plus — si falla, seguimos sin él.
+    console.warn('Cruce de horas: no se pudo leer rrhh_horas_detalle para el aviso de corte de mes', e);
+  }
   // rrhh_horas_detalle no guarda empresa — se resuelve por legajo cruzando contra rrhh_horas_mensual
   // (mismo criterio que se usa para armar tangoPorClave más abajo).
   const empresaPorLegajoPeriodo = new Map(); // `${legajo}|${periodo}` -> empresa

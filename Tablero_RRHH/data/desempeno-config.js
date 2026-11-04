@@ -3,11 +3,8 @@
 // valores que estaban hardcodeados en components/desempeno-cargar.js antes de que el puntaje
 // se pudiera configurar — se usan como red de seguridad si la tabla todavía no existe o la
 // consulta falla, para que nada se rompa ni cambie de golpe.
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './fuentes.js';
+import { sbGet, sbUpsert, sbDelete } from './supabase-rest.js';
 import { normPuesto } from './clasificacion-puestos.js';
-
-const HDR = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
-const HDR_JSON = { ...HDR, 'Content-Type': 'application/json' };
 
 // Nombre genérico del aspecto "reprocesos" cuando el puesto no le puso uno propio (ver
 // reprocesos_label en iso_desempeno_config / iso_desempeno_config_puesto y Personalizar por
@@ -33,25 +30,22 @@ export const CONFIG_DEFAULT = {
 // default lo que falte en la base (fila no creada todavía, columna null, etc.).
 export async function obtenerConfigDesempeno() {
   try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/iso_desempeno_config?select=*`, { headers: HDR });
-    const filas = r.ok ? await r.json() : [];
+    const filas = await sbGet('iso_desempeno_config?select=*');
     const porTipo = new Map(filas.map(f => [f.tipo, f]));
     return {
       mensual: { ...CONFIG_DEFAULT.mensual, ...(porTipo.get('mensual') || {}) },
       quincenal: { ...CONFIG_DEFAULT.quincenal, ...(porTipo.get('quincenal') || {}) },
     };
-  } catch {
+  } catch (e) {
+    // Fallback intencional (ver comentario de arriba): con el puntaje default se puede seguir
+    // evaluando aunque la tabla no exista o falle la consulta.
+    console.warn('obtenerConfigDesempeno: se usa CONFIG_DEFAULT', e);
     return CONFIG_DEFAULT;
   }
 }
 
 export async function guardarConfigDesempeno(tipo, valores) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/iso_desempeno_config?on_conflict=tipo`, {
-    method: 'POST',
-    headers: { ...HDR_JSON, Prefer: 'resolution=merge-duplicates' },
-    body: JSON.stringify({ tipo, ...valores, actualizado_en: new Date().toISOString() }),
-  });
-  if (!r.ok) throw new Error(`Supabase: error ${r.status}`);
+  await sbUpsert('iso_desempeno_config?on_conflict=tipo', { tipo, ...valores, actualizado_en: new Date().toISOString() });
 }
 
 // ── Personalización por puesto (opcional, por encima del default de mensual/quincenal) ──────
@@ -61,28 +55,21 @@ export async function guardarConfigDesempeno(tipo, valores) {
 
 export async function obtenerConfigPorPuesto() {
   try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/iso_desempeno_config_puesto?select=*`, { headers: HDR });
-    const filas = r.ok ? await r.json() : [];
+    const filas = await sbGet('iso_desempeno_config_puesto?select=*');
     return new Map(filas.map(f => [normPuesto(f.desc_puesto), f]));
-  } catch {
+  } catch (e) {
+    // Fallback intencional: sin personalización por puesto cada uno usa el default de su tipo.
+    console.warn('obtenerConfigPorPuesto: se usa el default por tipo', e);
     return new Map();
   }
 }
 
 export async function guardarConfigPuesto(descPuesto, valores) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/iso_desempeno_config_puesto?on_conflict=desc_puesto`, {
-    method: 'POST',
-    headers: { ...HDR_JSON, Prefer: 'resolution=merge-duplicates' },
-    body: JSON.stringify({ desc_puesto: descPuesto, ...valores, actualizado_en: new Date().toISOString() }),
-  });
-  if (!r.ok) throw new Error(`Supabase: error ${r.status}`);
+  await sbUpsert('iso_desempeno_config_puesto?on_conflict=desc_puesto', { desc_puesto: descPuesto, ...valores, actualizado_en: new Date().toISOString() });
 }
 
 export async function borrarConfigPuesto(descPuesto) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/iso_desempeno_config_puesto?desc_puesto=eq.${encodeURIComponent(descPuesto)}`, {
-    method: 'DELETE', headers: HDR,
-  });
-  if (!r.ok) throw new Error(`Supabase: error ${r.status}`);
+  await sbDelete(`iso_desempeno_config_puesto?desc_puesto=eq.${encodeURIComponent(descPuesto)}`);
 }
 
 // Única función que hace falta llamar para saber qué puntaje aplicarle a una persona: el de su

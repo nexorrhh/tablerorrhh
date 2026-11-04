@@ -1,49 +1,42 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { SUPABASE_URL } from '../data/fuentes.js';
 import { obtenerClasificacionPuestos, tipoPuesto } from '../data/clasificacion-puestos.js';
 import { obtenerClasificacionAusencias, categoriaAusencia } from '../data/clasificacion-ausencias.js';
 import { crearOrdenTabla } from './tabla-ordenable.js';
+import { sbGet, sbTraerTodo, sbTraerTodoCache } from '../data/supabase-rest.js';
+import { htmlError } from './util.js';
+// Los cálculos viven en data/calculo-presentismo.js; se re-exportan acá porque otros
+// componentes (Ficha, Personas) los importan desde este archivo.
+import {
+  CATEGORIAS_TABLA, CATEGORIA_LABEL, CODIGOS_EXCLUIDOS_AUSENTISMO, EMPRESAS, EMP_LABEL,
+  desgloseExt50, mesesDisponibles, rangoQuincena, reconstruirFilasDesdeDetalle,
+  calcularGrupo, resumenTardanzas, ausentismoPorCategoriaPeriodo, ausentismoDetalleMotivoPeriodo,
+  totalHorasTrabajadas, EXT50_TIPOS,
+} from '../data/calculo-presentismo.js';
+export {
+  CATEGORIAS_TABLA, CATEGORIA_LABEL, CODIGOS_EXCLUIDOS_AUSENTISMO, EMPRESAS, EMP_LABEL,
+  desgloseExt50, mesesDisponibles, rangoQuincena, reconstruirFilasDesdeDetalle,
+  calcularGrupo, resumenTardanzas, ausentismoPorCategoriaPeriodo, ausentismoDetalleMotivoPeriodo,
+  totalHorasTrabajadas,
+};
 
-const HDR = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 const MESES_CORTO = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
-// Columnas de "Detalle de ausentismo", en el orden en que se muestran — 4 motivos +
-// lo que todavía nadie clasificó (ver Horas y Presentismo → Parametrización).
-export const CATEGORIAS_TABLA = ['enfermedad', 'accidente', 'licencia', 'aviso', 'sin_aviso', 'sin_clasificar'];
-export const CATEGORIA_LABEL = {
-  enfermedad: 'Enfermedad', accidente: 'Accidente', licencia: 'Licencia', aviso: 'Aviso',
-  sin_aviso: 'Sin aviso', sin_clasificar: 'Sin clasif.',
-};
 export const CATEGORIA_COLOR = {
   enfermedad: '#d97706', accidente: '#dc2626', licencia: '#0891b2', aviso: '#2563eb',
   sin_aviso: '#991b1b', sin_clasificar: '#94a3b8',
 };
-// VACACION y VIAJE ya tienen tratamiento propio en presentismo-carga.js (no cuentan como
-// ausentismo) — igual quedan como eventos 'ausente' en rrhh_tardanzas_salidas (los necesita
-// el badge de "Vacaciones" en Por persona), así que hay que excluirlos acá explícitamente.
-// AUS_FER (feriado) tampoco es una falta de la persona: la planta cierra por feriado.
-export const CODIGOS_EXCLUIDOS_AUSENTISMO = new Set(['VACACION', 'VIAJE', 'AUS_FER']);
 
 // Supabase/PostgREST devuelve como máximo 1000 filas por request (aunque no se pida límite).
 // rrhh_horas_detalle puede superar eso ampliamente, así que hay que paginar con offset/limit
 // hasta agotar los resultados; una sola llamada trunca en silencio (sin error) y deja afuera
 // lo que venga después de la fila 1000, sin ningún orden garantizado.
-export async function fetchTodasFilas(url) {
-  const PAGE = 1000;
-  let offset = 0, out = [];
-  for (;;) {
-    const sep = url.includes('?') ? '&' : '?';
-    const r = await fetch(`${url}${sep}limit=${PAGE}&offset=${offset}`, { headers: HDR });
-    if (!r.ok) break;
-    const rows = await r.json();
-    out = out.concat(rows);
-    if (rows.length < PAGE) break;
-    offset += PAGE;
-  }
-  return out;
+// Se mantiene el nombre porque otros módulos lo importan; ahora delega en la capa
+// común, que además LANZA error si una página falla (antes cortaba y devolvía datos
+// parciales como si estuvieran completos).
+export function fetchTodasFilas(url) {
+  return sbTraerTodo(url);
 }
 
-export const EMPRESAS  = ['CIMOMET', 'COMOING'];
-export const EMP_LABEL = { CIMOMET: 'Cimomet', COMOING: 'Co.mo.ing' };
 const EMP_COLOR = { CIMOMET: 'var(--color-primario)', COMOING: '#0d9488' };
 
 export function fmtPeriodo(p) { const [y, m] = p.split('-'); return `${MESES_CORTO[+m - 1]} ${y}`; }
@@ -54,115 +47,6 @@ export function fmtFecha(f) {
   return `${+d} ${MESES_CORTO[+m - 1]} ${y}`;
 }
 
-// Desglosa el detalle diario de HSEXT50 en "en semana" vs "sábados" (mismo dato que ya
-// compone el total de Horas extra 50% — no es algo adicional, es un desglose de lo mismo).
-export function desgloseExt50(detalle, legajosSet, periodo) {
-  let semana = 0, sabado = 0;
-  detalle.forEach(d => {
-    if (!legajosSet.has(String(d.legajo))) return;
-    if (periodo && d.periodo !== periodo) return;
-    const horas = +d.hs_trabajadas || 0;
-    const esSabado = new Date(d.fecha + 'T00:00:00').getDay() === 6;
-    if (esSabado) sabado += horas; else semana += horas;
-  });
-  return { semana: Math.round(semana), sabado: Math.round(sabado) };
-}
-
-// Meses (con datos) de un año dado, a partir de la lista de períodos "YYYY-MM" ya cargados.
-export function mesesDisponibles(allPeriodos, anio) {
-  return [...new Set(allPeriodos.filter(p => p.startsWith(anio + '-')).map(p => p.split('-')[1]))].sort();
-}
-
-// Rango de fechas [desde, hasta] de una quincena dentro de un período. Acepta tanto
-// "YYYY-MM" como el formato real de la columna "periodo" en Supabase ("YYYY-MM-01") — solo
-// usa el año y el mes, así que el resto del string (si lo hay) no importa.
-export function rangoQuincena(periodo, vista) {
-  const [y, m] = periodo.split('-');
-  const base = `${y}-${m}`;
-  if (vista === 'q1') return [`${base}-01`, `${base}-15`];
-  const ultimoDia = new Date(+y, +m, 0).getDate();
-  return [`${base}-16`, `${base}-${String(ultimoDia).padStart(2, '0')}`];
-}
-
-const EXT50_TIPOS = new Set(['HSEXT', 'HSEXT50', 'HS 50 VAC']);
-const EXT100_TIPOS = new Set(['HSEXT100', 'HS 100 VAC']);
-
-// Reconstruye filas "tipo rrhh_horas_mensual" (una por legajo) a partir del detalle diario
-// (rrhh_horas_detalle) para una franja de fechas que no tiene su propio acumulado mensual —
-// 1ra/2da quincena. El resultado se puede pasar tal cual a calcularGrupo(), así los mismos
-// indicadores de siempre (cumplimiento, presentismo, ausentismo) valen también acá sin
-// reimplementar esa lógica dos veces.
-export function reconstruirFilasDesdeDetalle(detalleRows, rawAusGroup, empresaPorLegajo, periodo, fechaDesde, fechaHasta) {
-  const porLegajo = new Map();
-  const porLegajoFecha = new Map();
-
-  function fila(legajo) {
-    // Normalizar: los legajos llegan como number desde Supabase pero como string cuando se
-    // extraen de la clave "legajo|fecha" más abajo — sin esto, cada persona quedaba partida
-    // en dos filas (una con las horas, otra con los días presente) y ninguna cerraba sola.
-    legajo = String(legajo);
-    if (!porLegajo.has(legajo)) {
-      porLegajo.set(legajo, {
-        legajo, periodo, empresa: empresaPorLegajo.get(String(legajo)) || null,
-        hs_normales: 0, hs_esperadas: 0, hs_extra50: 0, hs_extra100: 0,
-        hs_vac_trabajadas: 0, hs_vac_esperadas: 0,
-        hs_justificadas: 0, hs_no_justificadas: 0, hs_ausencias: 0,
-        dias_laborables: 0, dias_presentes: 0, dias_ausentes_nojust: 0,
-      });
-    }
-    return porLegajo.get(legajo);
-  }
-
-  detalleRows.forEach(d => {
-    if (d.fecha < fechaDesde || d.fecha > fechaHasta) return;
-    // Exigir también que el período de la fila coincida con el que se está pidiendo — hay
-    // filas en rrhh_horas_detalle mal etiquetadas (periodo de un mes, fecha real de otro)
-    // que si no se filtran acá se cuentan dos veces (una en su mes real, otra acá).
-    if (d.periodo && d.periodo !== periodo) return;
-    const key = `${d.legajo}|${d.fecha}`;
-    if (!porLegajoFecha.has(key)) porLegajoFecha.set(key, []);
-    porLegajoFecha.get(key).push(d);
-
-    const f = fila(d.legajo);
-    if (d.tipo_hora === 'HSNOR') {
-      f.hs_normales        += +d.hs_trabajadas       || 0;
-      f.hs_justificadas    += +d.hs_justificadas     || 0;
-      f.hs_no_justificadas += +d.hs_no_justificadas  || 0;
-      f.hs_esperadas       += +d.hs_esperadas        || 0;
-    } else if (EXT50_TIPOS.has(d.tipo_hora)) {
-      f.hs_extra50 += +d.hs_trabajadas || 0;
-    } else if (EXT100_TIPOS.has(d.tipo_hora)) {
-      f.hs_extra100 += +d.hs_trabajadas || 0;
-    } else if (d.tipo_hora === 'HS VAC') {
-      // Mismo criterio que presentismo-carga.js: Tango no completa "trabajadas" en HS VAC,
-      // el dato real está en "reales".
-      f.hs_vac_trabajadas += +d.hs_reales    || 0;
-      f.hs_vac_esperadas  += +d.hs_esperadas || 0;
-    }
-  });
-
-  // Días presente / ausente sin justificar — un día a la vez, mirando todas sus filas juntas
-  // (mismo criterio que calcularDia en presentismo-personas.js, pero solo para el conteo).
-  porLegajoFecha.forEach((filasDia, key) => {
-    const legajo = key.slice(0, key.indexOf('|'));
-    const f = fila(legajo);
-    const hsReales  = filasDia.reduce((s, d) => s + (+d.hs_reales || 0), 0);
-    const hsnor     = filasDia.filter(d => d.tipo_hora === 'HSNOR');
-    const hsEspDia  = hsnor.reduce((s, d) => s + (+d.hs_esperadas    || 0), 0);
-    const hsJustDia = hsnor.reduce((s, d) => s + (+d.hs_justificadas || 0), 0);
-    if (hsReales > 0) f.dias_presentes++;
-    else if (hsEspDia > 0 && hsJustDia <= 0) f.dias_ausentes_nojust++;
-  });
-
-  rawAusGroup.forEach(e => {
-    if (e.fecha < fechaDesde || e.fecha > fechaHasta) return;
-    if (e.periodo && e.periodo !== periodo) return; // ver comentario arriba sobre filas mal etiquetadas
-    if (CODIGOS_EXCLUIDOS_AUSENTISMO.has(e.codigo_justificacion)) return;
-    fila(e.legajo).hs_ausencias += (+e.minutos || 0) / 60;
-  });
-
-  return [...porLegajo.values()];
-}
 
 // Gráficos principales (viven toda la vida del componente)
 let graficosActivos = [];
@@ -176,145 +60,7 @@ function destruirGraficos() {
   Object.keys(graficosDepActivos).forEach(k => delete graficosDepActivos[k]);
 }
 
-// ── Métricas de un grupo (quincenal o mensual) para todos los períodos ────────
-// También sirve para UNA sola persona (Horas y Presentismo → Ficha individual): basta con
-// pasarle las filas de ese único legajo, no asume nada sobre cuántas personas hay en "rows".
-// Las vacaciones trabajadas (HS VAC) son horas trabajadas y pagadas igual que las normales —
-// sin sumarlas, "trabajadas" queda por debajo del total pagado que muestra Cruce de Horas.
-const hsTrabajadas = d => (+d.hs_normales || 0) + (+d.hs_vac_trabajadas || 0);
-const hsEsperadas  = d => (+d.hs_esperadas || 0) + (+d.hs_vac_esperadas || 0);
 
-export function calcularGrupo(rows, allPeriodos, activosSet) {
-  // Agrupado por (periodo, empresa) para los gráficos de tendencia
-  const agg = new Map();
-  rows.forEach(d => {
-    const emp = EMPRESAS.includes(d.empresa) ? d.empresa : null;
-    if (!emp) return;
-    const k = `${d.periodo}|${emp}`;
-    if (!agg.has(k)) agg.set(k, { hs_norm: 0, hs_just: 0, hs_nojust: 0, hs_esp: 0, ext50: 0, ext100: 0, hs_aus: 0 });
-    const v = agg.get(k);
-    v.hs_norm   += hsTrabajadas(d);
-    v.ext50     += +d.hs_extra50   || 0;
-    v.ext100    += +d.hs_extra100  || 0;
-    v.hs_esp    += +d.hs_vac_esperadas || 0;
-    if ((+d.hs_esperadas || 0) > 0) {
-      v.hs_just   += +d.hs_justificadas    || 0;
-      v.hs_nojust += +d.hs_no_justificadas || 0;
-      v.hs_esp    += +d.hs_esperadas       || 0;
-      v.hs_aus    += +d.hs_ausencias       || 0;
-    }
-  });
-  const get = (p, e, f) => agg.get(`${p}|${e}`)?.[f] || 0;
-
-  const horasCIM = allPeriodos.map(p => Math.round(get(p, 'CIMOMET', 'hs_norm')));
-  const horasCOM = allPeriodos.map(p => Math.round(get(p, 'COMOING', 'hs_norm')));
-  const horasTot = allPeriodos.map((_, i) => horasCIM[i] + horasCOM[i]);
-  const ausPct   = allPeriodos.map(p => {
-    let trab = 0, aus = 0;
-    EMPRESAS.forEach(e => { trab += get(p, e, 'hs_norm'); aus += get(p, e, 'hs_aus'); });
-    return trab + aus > 0 ? +((aus / (trab + aus)) * 100).toFixed(1) : 0;
-  });
-  const espTot   = allPeriodos.map(p => Math.round(EMPRESAS.reduce((s, e) => s + get(p, e, 'hs_esp'), 0)));
-  const ext50Tot = allPeriodos.map(p => Math.round(EMPRESAS.reduce((s, e) => s + get(p, e, 'ext50'), 0)));
-  const ext100Tot= allPeriodos.map(p => Math.round(EMPRESAS.reduce((s, e) => s + get(p, e, 'ext100'), 0)));
-
-  // Totales globales
-  const validRows = rows.filter(d => EMPRESAS.includes(d.empresa));
-  const totalTrab = validRows.reduce((s, d) => s + hsTrabajadas(d), 0);
-  const totalAus  = validRows.reduce((s, d) =>
-    (+d.hs_esperadas || 0) > 0 ? s + (+d.hs_ausencias || 0) : s, 0);
-  const totalEsp  = validRows.reduce((s, d) => s + hsEsperadas(d), 0);
-  const totalExt50 = validRows.reduce((s, d) => s + (+d.hs_extra50 || 0), 0);
-  const totalExt100= validRows.reduce((s, d) => s + (+d.hs_extra100 || 0), 0);
-  const totalDiasPres   = validRows.reduce((s, d) =>
-    (+d.hs_esperadas || 0) > 0 ? s + (+d.dias_presentes || 0) : s, 0);
-  const totalDiasNojust = validRows.reduce((s, d) =>
-    (+d.hs_esperadas || 0) > 0 ? s + (+d.dias_ausentes_nojust || 0) : s, 0);
-
-  const idxAus = totalTrab + totalAus > 0
-    ? ((totalAus / (totalTrab + totalAus)) * 100).toFixed(1) : '—';
-  const cumplimiento = totalEsp > 0
-    ? ((totalTrab / totalEsp) * 100).toFixed(1) : '—';
-  const presGlobal = totalDiasPres + totalDiasNojust > 0
-    ? ((totalDiasPres / (totalDiasPres + totalDiasNojust)) * 100).toFixed(1) : '—';
-
-  const colorIdx   = +idxAus < 5 ? '#16a34a' : +idxAus < 8 ? '#d97706' : '#dc2626';
-  const colorCumpl = +cumplimiento >= 95 ? '#16a34a' : +cumplimiento >= 90 ? '#d97706' : '#dc2626';
-  const colorPres  = +presGlobal  >= 95 ? '#16a34a' : +presGlobal  >= 90 ? '#d97706' : '#dc2626';
-
-  const totCIM = horasCIM.reduce((s, v) => s + v, 0);
-  const totCOM = horasCOM.reduce((s, v) => s + v, 0);
-  const legajosPeriodo  = new Set(validRows.map(d => d.legajo));
-  const empleadosPeriodo = legajosPeriodo.size;
-  const empleadosActivos = activosSet
-    ? [...legajosPeriodo].filter(l => activosSet.has(String(l))).length
-    : empleadosPeriodo;
-  const empleadosDesvinculados = empleadosPeriodo - empleadosActivos;
-
-  return {
-    horasCIM, horasCOM, horasTot, ausPct,
-    espTot, ext50Tot, ext100Tot,
-    totalTrab, totalAus, totalEsp, totalExt50, totalExt100,
-    idxAus, cumplimiento, presGlobal,
-    colorIdx, colorCumpl, colorPres,
-    totCIM, totCOM, totGen: totCIM + totCOM,
-    empleadosPeriodo, empleadosActivos, empleadosDesvinculados,
-    totalDiasPres,
-  };
-}
-
-// ── Resumen de tardanzas/salidas anticipadas para un grupo, en un conjunto de períodos ──
-export function resumenTardanzas(rawTardGroup, periodos) {
-  const filas = rawTardGroup.filter(t => periodos.includes(t.periodo));
-  const diasTarde    = filas.filter(t => t.tipo === 'tarde').length;
-  const minTarde      = filas.filter(t => t.tipo === 'tarde').reduce((s, t) => s + (+t.minutos || 0), 0);
-  const diasTemprano  = filas.filter(t => t.tipo === 'temprano').length;
-  const minTemprano   = filas.filter(t => t.tipo === 'temprano').reduce((s, t) => s + (+t.minutos || 0), 0);
-  // Un día con tarde Y temprano cuenta una sola vez como "día con incidente"
-  const diasConIncidente = new Set(filas.map(t => `${t.legajo}|${t.fecha}`)).size;
-  return { diasTarde, minTarde, diasTemprano, minTemprano, diasConIncidente };
-}
-
-// ── Composición del ausentismo por motivo, período a período (gráfico apilado) ───────────
-export function ausentismoPorCategoriaPeriodo(rawAusGroup, allPeriodos, mapaAusencias) {
-  const porPeriodo = new Map(allPeriodos.map(p => [p, Object.fromEntries(CATEGORIAS_TABLA.map(c => [c, 0]))]));
-  rawAusGroup.forEach(e => {
-    if (CODIGOS_EXCLUIDOS_AUSENTISMO.has(e.codigo_justificacion)) return;
-    const acc = porPeriodo.get(e.periodo);
-    if (!acc) return;
-    const cat = categoriaAusencia(e.codigo_justificacion, mapaAusencias);
-    acc[cat] += (+e.minutos || 0) / 60;
-  });
-  return Object.fromEntries(CATEGORIAS_TABLA.map(c => [c, allPeriodos.map(p => Math.round(porPeriodo.get(p)[c]))]));
-}
-
-// Mismo agrupamiento que ausentismoPorCategoriaPeriodo, pero sin perder el detalle de motivo
-// puntual (descripcion_justificacion, ej. "Enf-Digestiva") — se usa solo para el tooltip del
-// gráfico "Ausentismo por motivo", que además del total de la categoría muestra el desglose.
-export function ausentismoDetalleMotivoPeriodo(rawAusGroup, allPeriodos, mapaAusencias) {
-  const porPeriodo = new Map(allPeriodos.map(p => [p, new Map()])); // periodo -> categoria -> descripcion -> horas
-  rawAusGroup.forEach(e => {
-    if (CODIGOS_EXCLUIDOS_AUSENTISMO.has(e.codigo_justificacion)) return;
-    const porCategoria = porPeriodo.get(e.periodo);
-    if (!porCategoria) return;
-    const cat = categoriaAusencia(e.codigo_justificacion, mapaAusencias);
-    if (!porCategoria.has(cat)) porCategoria.set(cat, new Map());
-    const porDescripcion = porCategoria.get(cat);
-    const desc = (e.descripcion_justificacion || e.codigo_justificacion || 'Sin detalle').trim();
-    porDescripcion.set(desc, (porDescripcion.get(desc) || 0) + (+e.minutos || 0) / 60);
-  });
-  const resultado = {};
-  allPeriodos.forEach(p => {
-    resultado[p] = {};
-    for (const [cat, porDescripcion] of porPeriodo.get(p).entries()) {
-      resultado[p][cat] = [...porDescripcion.entries()]
-        .map(([desc, horas]) => ({ desc, horas: Math.round(horas) }))
-        .filter(x => x.horas > 0)
-        .sort((a, b) => b.horas - a.horas);
-    }
-  });
-  return resultado;
-}
 
 // ── Estadísticas por departamento para un período concreto ────────────────────
 function buildDepStats(rawGroup, periodo) {
@@ -992,9 +738,10 @@ export async function renderizarPresentismoIndicadores(contenedor) {
     const [rHrows, rE, rA, rDrows, rTard, mapa, mapaAus] = await Promise.all([
       // Paginado: la tabla ya ronda las 1000 filas (tope del servidor por consulta) y crece
       // ~100 por mes — una sola llamada dejaría afuera, sin aviso, los meses más nuevos.
-      fetchTodasFilas(`${SUPABASE_URL}/rest/v1/rrhh_horas_mensual?select=legajo,apellido,nombre,departamento,periodo,empresa,hs_normales,hs_esperadas,hs_extra50,hs_extra100,hs_vac_trabajadas,hs_vac_esperadas,hs_justificadas,hs_no_justificadas,hs_ausencias,dias_laborables,dias_presentes,dias_ausentes_nojust&order=periodo.asc,id.asc`),
-      fetch(`${SUPABASE_URL}/rest/v1/empleados?select=legajo,empresa,desc_puesto,activo&limit=2000`, { headers: HDR }),
-      fetch(`${SUPABASE_URL}/rest/v1/v_ausentismo_tipo?select=periodo,tipo,hs_total&order=periodo.asc`, { headers: HDR }),
+      sbTraerTodoCache('rrhh_horas_mensual?select=legajo,apellido,nombre,departamento,periodo,empresa,hs_normales,hs_esperadas,hs_extra50,hs_extra100,hs_vac_trabajadas,hs_vac_esperadas,hs_justificadas,hs_no_justificadas,hs_ausencias,dias_laborables,dias_presentes,dias_ausentes_nojust&order=periodo.asc,id.asc'),
+      // Antes: limit=2000 fijo y, si fallaba, seguía sin empleados (todo quedaba "sin clasificar").
+      sbTraerTodoCache('empleados?select=legajo,empresa,desc_puesto,activo&order=id.asc'),
+      sbTraerTodo('v_ausentismo_tipo?select=periodo,tipo,hs_total&order=periodo.asc,tipo.asc'),
       // 'HSEXT' es el código real de Tango para 50% (ver presentismo-carga.js); 'HSEXT50' se
       // acepta también por compatibilidad con algún import previo que lo haya usado tal cual.
       // 'HS 50 VAC' es el mismo concepto de extra al 50% pero de un día de vacaciones
@@ -1006,14 +753,14 @@ export async function renderizarPresentismoIndicadores(contenedor) {
       obtenerClasificacionAusencias(),
     ]);
     rawHoras = rHrows;
-    if (rE.ok) empleados    = await rE.json();
-    if (rA.ok) rawAusTipo   = await rA.json();
+    empleados  = rE;
+    rawAusTipo = rA;
     detalleExt50 = rDrows;
     rawTardanzas = rTard;
     mapaClasif = mapa;
     mapaAusencias = mapaAus;
   } catch (e) {
-    contenedor.innerHTML = `<div class="pres__vacio">Error al cargar datos: ${e.message}</div>`;
+    contenedor.innerHTML = htmlError('No se pudieron cargar los indicadores.', e.message);
     return;
   }
 
@@ -1429,9 +1176,10 @@ export async function renderizarPresentismoIndicadores(contenedor) {
   const detalleQuincenaCache = new Map();
   function obtenerDetalleQuincena(periodo) {
     if (!detalleQuincenaCache.has(periodo)) {
+      // Si falla se saca de la caché (para reintentar al volver a elegir) y se propaga el error.
       detalleQuincenaCache.set(periodo, fetchTodasFilas(
         `${SUPABASE_URL}/rest/v1/rrhh_horas_detalle?periodo=eq.${periodo}&select=legajo,fecha,periodo,tipo_hora,hs_trabajadas,hs_reales,hs_esperadas,hs_justificadas,hs_no_justificadas&order=id.asc`
-      ).catch(() => []));
+      ).catch(e => { detalleQuincenaCache.delete(periodo); throw e; }));
     }
     return detalleQuincenaCache.get(periodo);
   }
@@ -1494,7 +1242,18 @@ export async function renderizarPresentismoIndicadores(contenedor) {
         ['total', 'trab', 'esp', 'cumpl', 'aus', 'idx', 'pres'].forEach(k => { const el = kv(k); if (el) el.textContent = '…'; });
 
         const [fechaDesde, fechaHasta] = rangoQuincena(per, vista);
-        const detalleTodos = await obtenerDetalleQuincena(per);
+        let detalleTodos;
+        try {
+          detalleTodos = await obtenerDetalleQuincena(per);
+        } catch (e) {
+          // Antes un fallo devolvía [] y la quincena se mostraba con todo en 0, como si
+          // fuera un dato real. Mejor avisar y no mostrar números inventados.
+          console.error('Detalle de quincena', e);
+          ['total', 'trab', 'esp', 'cumpl', 'aus', 'idx', 'pres'].forEach(k => { const el = kv(k); if (el) el.textContent = 'Error'; });
+          const subEl = kv('sub-trab');
+          if (subEl) subEl.textContent = 'No se pudo cargar el detalle de la quincena. Probá de nuevo.';
+          return;
+        }
         // Puede haber cambiado el filtro mientras esperábamos la respuesta — no pisar un
         // estado más nuevo con uno viejo que recién ahora termina de llegar.
         if (periodoActual() !== per || (vistaSel && vistaSel.value !== vista)) return;
@@ -1521,7 +1280,7 @@ export async function renderizarPresentismoIndicadores(contenedor) {
       const totalEl = kv('total');
       const subEl  = kv('sub-trab');
       if (trabEl) trabEl.textContent = fmtNum(gF.totalTrab) + 'h';
-      if (totalEl) totalEl.textContent = fmtNum(Math.round(gF.totalTrab) + ext50Real + Math.round(gF.totalExt100));
+      if (totalEl) totalEl.textContent = fmtNum(totalHorasTrabajadas(gF.totalTrab, ext50Desglose, gF.totalExt100));
       if (subEl) subEl.textContent = !per
         ? (allPeriodos.length > 1
             ? `${fmtPeriodo(allPeriodos[0])} – ${fmtPeriodo(allPeriodos[allPeriodos.length - 1])}`
@@ -1696,8 +1455,8 @@ export async function renderizarPresentismoIndicadores(contenedor) {
       if (abriendo && !expandRow.dataset.loaded) {
         const celda = expandRow.querySelector('td');
         try {
-          const r = await fetch(`${SUPABASE_URL}/rest/v1/rrhh_tardanzas_salidas?legajo=eq.${legajo}&periodo=eq.${per}&tipo=eq.ausente&select=fecha,minutos,codigo_justificacion,descripcion_justificacion&order=fecha.asc`, { headers: HDR });
-          const eventosDia = r.ok ? await r.json() : [];
+          // sbGet lanza error si falla (antes mostraba "sin días" como si no hubiera faltas).
+          const eventosDia = await sbGet(`rrhh_tardanzas_salidas?legajo=eq.${legajo}&periodo=eq.${per}&tipo=eq.ausente&select=fecha,minutos,codigo_justificacion,descripcion_justificacion&order=fecha.asc`);
           celda.innerHTML = renderDias(eventosDia.filter(e => !CODIGOS_EXCLUIDOS_AUSENTISMO.has(e.codigo_justificacion)), mapaAusencias);
           expandRow.dataset.loaded = '1';
         } catch { celda.innerHTML = '<em style="padding:10px;color:#dc2626">Error al cargar.</em>'; }

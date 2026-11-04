@@ -9,11 +9,9 @@
 // A diferencia del script, primero muestra qué va a cambiar y deja destildar cambios puntuales
 // (ej. un puesto que se corrigió a mano en la base y el Excel todavía trae viejo).
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { sbTraerTodo, sbRpc, invalidarCache } from '../data/supabase-rest.js';
 import { obtenerUsuario } from '../data/usuario-activo.js';
 
-const HDR = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
-const HDR_JSON = { ...HDR, 'Content-Type': 'application/json' };
 const EMP_LABEL = { CIMOMET: 'Cimomet', COMOING: 'Co.mo.ing' };
 
 // Columnas del Excel de Tango → columnas de `empleados`. Se buscan por título (sin tildes ni
@@ -115,9 +113,14 @@ async function leerExcel(archivo) {
 }
 
 async function traerEmpleados() {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/empleados?select=legajo,empresa,${CAMPOS_COMPARADOS.join(',')},activo&limit=5000`, { headers: HDR });
-  if (!r.ok) throw new Error(`No se pudo leer el plantel actual (HTTP ${r.status}).`);
-  return r.json();
+  // Paginado completo en vez de limit=5000: si el plantel quedara cortado, los que faltan
+  // aparecerían como "altas" duplicadas.
+  try {
+    return await sbTraerTodo(`empleados?select=legajo,empresa,${CAMPOS_COMPARADOS.join(',')},activo&order=id.asc`);
+  } catch (err) {
+    console.error(err);
+    throw new Error(`No se pudo leer el plantel actual (${err.message}).`);
+  }
 }
 
 // Qué haría la carga para una empresa, comparando el Excel contra la base.
@@ -136,6 +139,19 @@ function calcularCambios(empresa, excel, enBase) {
   const bajas = [...base.values()].filter(b => b.activo && !excel.has(String(b.legajo)));
   const activosHoy = [...base.values()].filter(b => b.activo).length;
   return { empresa, excel, altas, reactivar, cambios, bajas, activosHoy };
+}
+
+// sbRpc lanza "Supabase <status> en "rpc/...": <cuerpo>". Se traduce a los mismos mensajes
+// que se mostraban antes (404 = falta la función; si no, el `message` que devuelve Postgres).
+function mensajeErrorRpc(err) {
+  const m = String(err?.message ?? '').match(/^Supabase (\d+) en "[^"]*"(?:: ([\s\S]*))?$/);
+  if (!m) return err?.message || 'Error de la base.';
+  if (m[1] === '404') {
+    return 'Falta crear la función en la base: ejecutá sql/plantel_importar_excel.sql en Supabase (SQL Editor) y volvé a intentar.';
+  }
+  let detalle = '';
+  try { detalle = JSON.parse(m[2] ?? '').message ?? ''; } catch { /* cuerpo no-JSON o truncado */ }
+  return detalle || `Error de la base (HTTP ${m[1]}).`;
 }
 
 // Arma la lista de operaciones elegidas y la aplica en la base con la función
@@ -165,18 +181,19 @@ async function aplicar(plan, seleccion) {
   });
 
   try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/plantel_aplicar_excel`, {
-      method: 'POST', headers: HDR_JSON,
-      body: JSON.stringify({
+    let data;
+    try {
+      data = await sbRpc('plantel_aplicar_excel', {
         p_empresa: empresa, p_operaciones: operaciones,
         p_legajos_excel: [...plan.excel.keys()], p_usuario: obtenerUsuario()?.nombre || null,
-      }),
-    });
-    if (r.status === 404) {
-      throw new Error('Falta crear la función en la base: ejecutá sql/plantel_importar_excel.sql en Supabase (SQL Editor) y volvé a intentar.');
+      });
+    } catch (err) {
+      throw new Error(mensajeErrorRpc(err));
     }
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(data.message || `Error de la base (HTTP ${r.status}).`);
+    data = data ?? {};
+    // La RPC escribe en empleados por fuera de sbPost/sbPatch: la caché no se entera sola.
+    invalidarCache('empleados');
+    invalidarCache('v_empleados_activos');
     return { actualizados: data.actualizados ?? 0, altas: data.altas ?? 0, bajas: data.bajas ?? 0, errores: data.errores ?? [] };
   } catch (err) {
     return { actualizados: 0, altas: 0, bajas: 0, errores: [err.message] };

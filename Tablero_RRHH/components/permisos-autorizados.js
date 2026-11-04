@@ -4,11 +4,10 @@
 // "Pendientes" (empleados en plural, con estado) — ver data/nexo-permisos.js.
 
 import { obtenerEstadisticasPermisos } from '../data/nexo-permisos.js';
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { sbTraerTodoCache } from '../data/supabase-rest.js';
 import { obtenerClasificacionPuestos, tipoPuesto } from '../data/clasificacion-puestos.js';
 import { crearOrdenTabla } from './tabla-ordenable.js';
 
-const HDR = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 const EMP_LABEL = { CIMOMET: 'Cimomet', COMOING: 'Co.mo.ing' };
 const EMP_COLOR = { CIMOMET: 'var(--color-primario)', COMOING: '#0d9488' };
 const TIPO_LABEL = {
@@ -28,15 +27,15 @@ const ESTADO_CFG = {
 async function obtenerMapaTipoPuesto() {
   const mapa = new Map(); // "EMPRESA|legajo" -> 'mensual' | 'quincenal' | 'sin_asignar'
   try {
-    const [rEmp, mapaClasif] = await Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/empleados?select=legajo,empresa,desc_puesto`, { headers: HDR }),
+    const [empleados, mapaClasif] = await Promise.all([
+      sbTraerTodoCache('empleados?select=legajo,empresa,desc_puesto&order=id.asc'),
       obtenerClasificacionPuestos(),
     ]);
-    if (rEmp.ok) {
-      const empleados = await rEmp.json();
-      empleados.forEach(emp => mapa.set(`${emp.empresa}|${emp.legajo}`, tipoPuesto(emp.desc_puesto, mapaClasif)));
-    }
-  } catch { /* si falla, todos quedan "sin_asignar" — el filtro sigue funcionando */ }
+    empleados.forEach(emp => mapa.set(`${emp.empresa}|${emp.legajo}`, tipoPuesto(emp.desc_puesto, mapaClasif)));
+  } catch (err) {
+    // Dato secundario: si falla, todos quedan "sin_asignar" — el filtro sigue funcionando.
+    console.warn('Permisos: no se pudo clasificar por tipo de puesto', err);
+  }
   return mapa;
 }
 
@@ -85,7 +84,7 @@ export async function renderizarPermisosAutorizados(contenedor) {
   contenedor.innerHTML = `<p class="sol__cargando">Cargando historial…</p>`;
 
   const [{ items: permisos, fallos }, mapaTipoPuesto] = await Promise.all([
-    obtenerEstadisticasPermisos().catch(() => ({ items: [], fallos: ['CIMOMET', 'COMOING'] })),
+    obtenerEstadisticasPermisos().catch(err => { console.error(err); return { items: [], fallos: ['CIMOMET', 'COMOING'] }; }),
     obtenerMapaTipoPuesto(),
   ]);
 

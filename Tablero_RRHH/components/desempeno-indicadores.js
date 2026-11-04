@@ -4,7 +4,8 @@
 // evaluado, quién falta, y la distribución de resultados (Bueno/Regular/Revisión) — el
 // semáforo que hoy arma F-106 a mano.
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
+import { sbTraerTodo, sbTraerTodoCache } from '../data/supabase-rest.js';
+import { htmlError } from './util.js';
 import { obtenerClasificacionPuestos } from '../data/clasificacion-puestos.js';
 import { RESULTADO_LABEL, RESULTADO_COLOR, corresponde, esReingreso, aniosDisponiblesDesempeno, PRIMER_ANIO_CON_DATOS_TANGO } from './desempeno-cargar.js';
 import { diasDesdeIngreso, VENTANA_DIAS, VENTANA_VISIBLE_DIAS } from './desempeno-prueba.js';
@@ -13,7 +14,6 @@ import { obtenerConfigDesempeno, obtenerConfigPorPuesto, resolverConfigPersona }
 import { obtenerReingresosManualesSet } from '../data/reingresos-manuales.js';
 import { obtenerPuestosExcluidosDesempeno } from '../data/desempeno-exclusiones.js';
 
-const HDR = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 const EMP_LABEL  = { CIMOMET: 'Cimomet', COMOING: 'Co.mo.ing' };
 const TIPO_LABEL = { mensual: 'Mensual', quincenal: 'Quincenal' };
 
@@ -36,24 +36,24 @@ export async function renderizarDesempenoIndicadores(contenedor) {
 
   let empleados = [], mapaClasif = new Map(), filasPrueba = [], config = null, manualSet = new Set(), configPorPuesto = new Map(), puestosExcluidos = new Set();
   try {
-    const [rE, mc, rP, cfg, ms, cpp, pe] = await Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/empleados?select=legajo,apellido_y_nombre,empresa,desc_puesto,activo,fecha_ingreso,creado_en&limit=2000`, { headers: HDR }),
+    const [emp, mc, prueba, cfg, ms, cpp, pe] = await Promise.all([
+      sbTraerTodoCache('empleados?select=legajo,apellido_y_nombre,empresa,desc_puesto,activo,fecha_ingreso,creado_en&order=id.asc'),
       obtenerClasificacionPuestos(),
-      fetch(`${SUPABASE_URL}/rest/v1/iso_evaluaciones_periodo_prueba?motivo=eq.ingreso&select=*`, { headers: HDR }),
+      sbTraerTodo('iso_evaluaciones_periodo_prueba?motivo=eq.ingreso&select=*&order=id.asc'),
       obtenerConfigDesempeno(),
       obtenerReingresosManualesSet(),
       obtenerConfigPorPuesto(),
       obtenerPuestosExcluidosDesempeno(),
     ]);
-    empleados = rE.ok ? await rE.json() : [];
+    empleados = emp;
     mapaClasif = mc;
-    filasPrueba = rP.ok ? await rP.json() : [];
+    filasPrueba = prueba;
     config = cfg;
     manualSet = ms;
     configPorPuesto = cpp;
     puestosExcluidos = pe;
   } catch (e) {
-    contenedor.innerHTML = `<div class="pres__vacio">Error al cargar el plantel: ${eP(e.message)}</div>`;
+    contenedor.innerHTML = htmlError('Error al cargar el plantel.', e.message);
     return;
   }
 
@@ -120,10 +120,15 @@ export async function renderizarDesempenoIndicadores(contenedor) {
     let filas = cacheEvals.get(anioActivo);
     if (!filas) {
       try {
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/iso_evaluaciones_desempeno?anio=eq.${anioActivo}&select=*`, { headers: HDR });
-        filas = r.ok ? await r.json() : [];
+        filas = await sbTraerTodo(`iso_evaluaciones_desempeno?anio=eq.${anioActivo}&select=*&order=id.asc`);
         cacheEvals.set(anioActivo, filas);
-      } catch { filas = []; }
+      } catch (e) {
+        // Antes se mostraba como "nadie evaluado"; ahora el error queda a la vista.
+        destruirGrafico();
+        ultimoResumen = null;
+        contenido.innerHTML = htmlError('No se pudieron cargar las evaluaciones del año.', e.message);
+        return;
+      }
     }
     render(filas);
   }
