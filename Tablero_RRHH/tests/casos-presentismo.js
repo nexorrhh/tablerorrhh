@@ -5,6 +5,7 @@
 import {
   calcularGrupo, desgloseExt50, totalHorasTrabajadas, rangoQuincena,
   reconstruirFilasDesdeDetalle, resumenTardanzas, ausentismoPorCategoriaPeriodo, mesesDisponibles,
+  contarAusencias, horasPermiso,
 } from '../data/calculo-presentismo.js';
 
 function igual(obtenido, esperado, que) {
@@ -123,6 +124,25 @@ export const casos = [
         { periodo: P, codigo_justificacion: 'XYZ', minutos: 120 },
       ], [P], mapa);
       igual([r.enfermedad[0], r.sin_clasificar[0]], [8, 2], 'horas por categoría');
+    },
+  },
+  {
+    nombre: 'Cantidad de ausencias: días por persona, sin vacaciones/feriados, por quincena',
+    fn() {
+      const aus = [
+        { legajo: 1, periodo: P, fecha: '2026-10-05', codigo_justificacion: 'ENF' },
+        { legajo: 1, periodo: P, fecha: '2026-10-05', codigo_justificacion: 'ENF' }, // mismo día
+        { legajo: 2, periodo: P, fecha: '2026-10-20', codigo_justificacion: 'SIN_AVISO' },
+        { legajo: 3, periodo: P, fecha: '2026-10-21', codigo_justificacion: 'VACACION' },
+      ];
+      igual(contarAusencias(aus, [P]), 2, 'mes');
+      igual(contarAusencias(aus, [P], '2026-10-01', '2026-10-15'), 1, '1ra quincena');
+    },
+  },
+  {
+    nombre: 'Horas de permiso = minutos de tardanzas + salidas anticipadas',
+    fn() {
+      igual(horasPermiso({ minTarde: 30, minTemprano: 60 }), 1.5, 'horas');
     },
   },
   {

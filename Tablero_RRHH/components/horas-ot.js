@@ -4,7 +4,7 @@
 
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../data/fuentes.js';
 import { obtenerClasificacionPuestos, tipoPuesto } from '../data/clasificacion-puestos.js';
-import { sbRpc, sbTraerTodo, sbTraerTodoCache, invalidarCache } from '../data/supabase-rest.js';
+import { sbGet, sbRpc, sbTraerTodo, sbTraerTodoCache, invalidarCache } from '../data/supabase-rest.js';
 
 const HDR    = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 const HDR_JSON = { ...HDR, 'Content-Type': 'application/json', Prefer: 'return=minimal' };
@@ -76,6 +76,9 @@ export function parsearExcelOT(wb) {
   };
   const faltantes = Object.entries(C).filter(([, v]) => v === -1).map(([k]) => k);
   if (faltantes.length) throw new Error(`Columnas no encontradas: ${faltantes.join(', ')}`);
+  // Observación (ej. "ot 1", "ot d"): opcional — los Excel viejos no la traen. Capataz
+  // exporta el encabezado truncado ("observacio"), así que se busca por prefijo.
+  const colObs = headers.findIndex(h => h.toLowerCase().startsWith('observ'));
 
   const filasOut = [];
   let entidadesExcluidas = 0;
@@ -123,6 +126,8 @@ export function parsearExcelOT(wb) {
       ot,
       horas,
       anomalo,
+      // Viene con muchos espacios de relleno: se recorta y se colapsan los espacios.
+      observacion:       colObs === -1 ? null : (String(f[colObs] ?? '').replace(/\s+/g, ' ').trim() || null),
     });
   }
   if (!filasOut.length) throw new Error('No se encontraron filas válidas en el archivo');
@@ -130,17 +135,35 @@ export function parsearExcelOT(wb) {
 }
 
 export async function guardarEnSupabase(filas) {
-  const periodos = [...new Set(filas.map(f => f.periodo))];
-  // Camino principal: borrar + insertar en una sola transacción (sql/cargas_atomicas.sql).
-  // Si algo falla no se guarda nada y el período anterior queda intacto.
+  const periodos = [...new Set(filas.map(f => f.periodo))].sort();
+  // Camino principal: un mes por vez, cada uno en su propia transacción
+  // (sql/cargas_atomicas.sql). Antes se mandaba el archivo entero en una sola llamada y,
+  // con ~16 meses (17.000+ filas), superaba el límite de 3 s de Supabase y se cancelaba.
+  // Así cada mes queda reemplazado entero o no se toca; si uno falla, los anteriores ya
+  // quedaron bien y "Reintentar" los vuelve a reemplazar sin duplicar.
+  const guardados = [];
   try {
-    await sbRpc('rrhh_cargar_horas_ot', { p_periodos: periodos, p_filas: filas });
+    for (const periodo of periodos) {
+      await sbRpc('rrhh_cargar_horas_ot', { p_periodos: [periodo], p_filas: filas.filter(f => f.periodo === periodo) });
+      guardados.push(periodo);
+    }
     invalidarCache();
     return;
   } catch (e) {
+    invalidarCache();
     // Solo se usa el método por lotes si la función todavía no está instalada.
-    if (!/PGRST202|Supabase 404/.test(e.message)) throw new Error(`Error al guardar: ${e.message}`);
-    console.warn('rrhh_cargar_horas_ot no instalada; se usa la carga por lotes (no atómica).');
+    if (!guardados.length && /PGRST202|Supabase 404/.test(e.message)) {
+      console.warn('rrhh_cargar_horas_ot no instalada; se usa la carga por lotes (no atómica).');
+    } else {
+      const fallo = periodos[guardados.length];
+      const ok = guardados.length ? ` Se guardaron bien ${guardados.length} de ${periodos.length} meses (hasta ${fmtPeriodo(guardados[guardados.length - 1])}).` : ' No se guardó ningún mes.';
+      throw new Error(`Falló al guardar ${fmtPeriodo(fallo)}: ${e.message}.${ok} Podés reintentar: lo ya guardado se reemplaza sin duplicar.`);
+    }
+  }
+  // Si todavía no se corrió sql/horas_ot_observacion.sql, la columna no existe y el insert
+  // fallaría DESPUÉS de borrar el período: se verifica antes y, si falta, se guarda sin ella.
+  if (!(await existeColumnaObservacion())) {
+    filas = filas.map(({ observacion, ...resto }) => resto);
   }
   // Reemplazar por período — no acumula duplicados si se vuelve a subir el mismo mes.
   const rDel = await fetch(`${SUPABASE_URL}/rest/v1/horas_ot_detalle?periodo=in.(${periodos.join(',')})`, {
@@ -156,6 +179,30 @@ export async function guardarEnSupabase(filas) {
     });
     if (!r.ok) throw new Error(`Error al guardar (HTTP ${r.status})`);
   }
+}
+
+// ¿Ya existe la columna "observacion" en horas_ot_detalle? (sql/horas_ot_observacion.sql)
+let columnaObservacion = null;
+export async function existeColumnaObservacion() {
+  if (columnaObservacion === null) {
+    try {
+      await sbGet('horas_ot_detalle?select=observacion&limit=1');
+      columnaObservacion = true;
+    } catch (e) {
+      // Solo "la columna no existe" significa que falta el SQL; cualquier otro error
+      // (red, etc.) se propaga y no se guarda el resultado, para reintentar después.
+      if (!/observacion/.test(e.message)) throw e;
+      columnaObservacion = false;
+    }
+  }
+  return columnaObservacion;
+}
+
+// Lee horas por OT incluyendo la observación si la columna ya existe en la base.
+// `select` es la lista de columnas sin observación.
+export async function traerHorasOT(filtro, select) {
+  const conObs = await existeColumnaObservacion();
+  return sbTraerTodo(`horas_ot_detalle?${filtro}&select=${select}${conObs ? ',observacion' : ''}&order=id.asc`);
 }
 
 const SELECT_OT = 'periodo,fecha,legajo,empresa,nombre,operacion,proyecto_nombre,cliente,ot,horas,anomalo';

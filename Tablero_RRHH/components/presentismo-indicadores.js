@@ -10,13 +10,13 @@ import {
   CATEGORIAS_TABLA, CATEGORIA_LABEL, CODIGOS_EXCLUIDOS_AUSENTISMO, EMPRESAS, EMP_LABEL,
   desgloseExt50, mesesDisponibles, rangoQuincena, reconstruirFilasDesdeDetalle,
   calcularGrupo, resumenTardanzas, ausentismoPorCategoriaPeriodo, ausentismoDetalleMotivoPeriodo,
-  totalHorasTrabajadas, EXT50_TIPOS,
+  totalHorasTrabajadas, EXT50_TIPOS, contarAusencias, horasPermiso,
 } from '../data/calculo-presentismo.js';
 export {
   CATEGORIAS_TABLA, CATEGORIA_LABEL, CODIGOS_EXCLUIDOS_AUSENTISMO, EMPRESAS, EMP_LABEL,
   desgloseExt50, mesesDisponibles, rangoQuincena, reconstruirFilasDesdeDetalle,
   calcularGrupo, resumenTardanzas, ausentismoPorCategoriaPeriodo, ausentismoDetalleMotivoPeriodo,
-  totalHorasTrabajadas,
+  totalHorasTrabajadas, contarAusencias, horasPermiso,
 };
 
 const MESES_CORTO = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
@@ -41,6 +41,17 @@ const EMP_COLOR = { CIMOMET: 'var(--color-primario)', COMOING: '#0d9488' };
 
 export function fmtPeriodo(p) { const [y, m] = p.split('-'); return `${MESES_CORTO[+m - 1]} ${y}`; }
 export function fmtNum(n)     { return Math.round(n || 0).toLocaleString('es-AR'); }
+// Valor de las tarjetas de ausentismo y de permisos: primero las horas y al lado la
+// cantidad (ej. "12h · 3 ausencias"), mismo formato en Indicadores y en las Fichas.
+export function htmlHorasYCantidad(horas, cantidad, singular, plural, decimales = 0) {
+  const h = decimales
+    ? (Number(horas) || 0).toLocaleString('es-AR', { minimumFractionDigits: decimales, maximumFractionDigits: decimales })
+    : fmtNum(horas);
+  return `${h}h <span class="pind__kpi-cant">· ${cantidad.toLocaleString('es-AR')} ${cantidad === 1 ? singular : plural}</span>`;
+}
+export const htmlAusencias = (horas, cantidad) => htmlHorasYCantidad(horas, cantidad, 'ausencia', 'ausencias');
+export const htmlPermisos  = (horas, cantidad) => htmlHorasYCantidad(horas, cantidad, 'permiso', 'permisos', 1);
+
 export function fmtFecha(f) {
   if (!f) return '—';
   const [y, m, d] = f.slice(0, 10).split('-');
@@ -595,9 +606,9 @@ function htmlSeccion(g, allPeriodos, id, titulo, acento) {
       <!-- KPIs fila 2: presentismo, ausentismo -->
       <div class="pind__kpis pind__kpis--sm" style="margin-top:10px">
         <div class="pind__kpi pind__kpi--clickable" id="pind-kpi-aus-${id}" title="Ver detalle de ausentismo">
-          <span class="pind__kpi-num" id="pind-kv-aus-${id}" style="color:#dc2626">${fmtNum(g.totalAus)}</span>
+          <span class="pind__kpi-num" id="pind-kv-aus-${id}" style="color:#dc2626">${htmlAusencias(g.totalAus, g.cantAus)}</span>
           <span class="pind__kpi-lbl">Hs. ausentismo <span class="pind__kpi-ver">▸ Ver</span></span>
-          <span class="pind__kpi-sub">Justificadas + sin justificar</span>
+          <span class="pind__kpi-sub">Horas (justificadas + sin justificar) · días de ausencia</span>
         </div>
         <div class="pind__kpi">
           <span class="pind__kpi-num" id="pind-kv-idx-${id}" style="color:${g.colorIdx}">${g.idxAus}%</span>
@@ -614,9 +625,9 @@ function htmlSeccion(g, allPeriodos, id, titulo, acento) {
       <!-- KPIs fila 3: tardanzas/salidas anticipadas, puntualidad -->
       <div class="pind__kpis pind__kpis--sm" style="margin-top:10px">
         <div class="pind__kpi pind__kpi--clickable" id="pind-kpi-tard-${id}" title="Ver detalle de tardanzas y salidas anticipadas">
-          <span class="pind__kpi-num" id="pind-kv-tard-${id}" style="color:#d97706">${g.diasTarde + g.diasTemprano}</span>
-          <span class="pind__kpi-lbl">Tardanzas y salidas anticipadas <span class="pind__kpi-ver">▸ Ver</span></span>
-          <span class="pind__kpi-sub" id="pind-kv-tard-sub-${id}">${g.diasTarde} tarde${g.diasTarde !== 1 ? 's' : ''} · ${g.diasTemprano} salida${g.diasTemprano !== 1 ? 's' : ''} anticipada${g.diasTemprano !== 1 ? 's' : ''}</span>
+          <span class="pind__kpi-num" id="pind-kv-tard-${id}" style="color:#d97706">${htmlPermisos(horasPermiso(g), g.diasTarde + g.diasTemprano)}</span>
+          <span class="pind__kpi-lbl">Hs. de permiso <span class="pind__kpi-ver">▸ Ver</span></span>
+          <span class="pind__kpi-sub" id="pind-kv-tard-sub-${id}">Tardanzas y salidas: ${g.diasTarde} tarde${g.diasTarde !== 1 ? 's' : ''} · ${g.diasTemprano} salida${g.diasTemprano !== 1 ? 's' : ''} anticipada${g.diasTemprano !== 1 ? 's' : ''}</span>
         </div>
         <div class="pind__kpi">
           <span class="pind__kpi-num" id="pind-kv-punt-${id}" style="color:${g.colorPunt}">${g.indicePuntualidad != null ? g.indicePuntualidad + '%' : '—'}</span>
@@ -838,9 +849,11 @@ export async function renderizarPresentismoIndicadores(contenedor) {
   gM.ext50Semana = ext50M.semana; gM.ext50Sabado = ext50M.sabado; gM.totalExt50 = ext50M.semana + ext50M.sabado;
 
   // Tardanzas / salidas anticipadas + índice de puntualidad, por grupo (todos los períodos)
-  [[gQ, rawTardQ], [gM, rawTardM]].forEach(([g, rawTardGroup]) => {
+  [[gQ, rawTardQ, rawAusQ], [gM, rawTardM, rawAusM]].forEach(([g, rawTardGroup, rawAusGroup]) => {
     const r = resumenTardanzas(rawTardGroup, allPeriodos);
     Object.assign(g, r);
+    // Valores iniciales de las tarjetas (todo el histórico): horas + cantidad.
+    g.cantAus = contarAusencias(rawAusGroup, allPeriodos);
     g.indicePuntualidad = g.totalDiasPres > 0
       ? +(((g.totalDiasPres - r.diasConIncidente) / g.totalDiasPres) * 100).toFixed(1)
       : null;
@@ -1296,7 +1309,10 @@ export async function renderizarPresentismoIndicadores(contenedor) {
       if (cumplEl) { cumplEl.textContent = gF.cumplimiento + '%'; cumplEl.style.color = gF.colorCumpl; }
 
       const ausEl = kv('aus');
-      if (ausEl) ausEl.textContent = fmtNum(gF.totalAus);
+      // Cantidad de ausencias en el mismo recorte (mes, quincena o todo el histórico).
+      const [fDesde, fHasta] = (per && vista !== 'mensual') ? rangoQuincena(per, vista) : [null, null];
+      const cantAus = contarAusencias(rawAusGroup, per ? [per] : allPeriodos, fDesde, fHasta);
+      if (ausEl) ausEl.innerHTML = htmlAusencias(gF.totalAus, cantAus);
 
       const idxEl = kv('idx');
       if (idxEl) { idxEl.textContent = gF.idxAus + '%'; idxEl.style.color = gF.colorIdx; }
@@ -1317,9 +1333,9 @@ export async function renderizarPresentismoIndicadores(contenedor) {
 
       // Tardanzas / salidas anticipadas / puntualidad
       const tardEl = kv('tard');
-      if (tardEl) tardEl.textContent = rTard.diasTarde + rTard.diasTemprano;
+      if (tardEl) tardEl.innerHTML = htmlPermisos(horasPermiso(rTard), rTard.diasTarde + rTard.diasTemprano);
       const tardSubEl = contenedor.querySelector(`#pind-kv-tard-sub-${sufijo}`);
-      if (tardSubEl) tardSubEl.textContent = `${rTard.diasTarde} tarde${rTard.diasTarde !== 1 ? 's' : ''} · ${rTard.diasTemprano} salida${rTard.diasTemprano !== 1 ? 's' : ''} anticipada${rTard.diasTemprano !== 1 ? 's' : ''}`;
+      if (tardSubEl) tardSubEl.textContent = `Tardanzas y salidas: ${rTard.diasTarde} tarde${rTard.diasTarde !== 1 ? 's' : ''} · ${rTard.diasTemprano} salida${rTard.diasTemprano !== 1 ? 's' : ''} anticipada${rTard.diasTemprano !== 1 ? 's' : ''}`;
       const puntEl = kv('punt');
       if (puntEl) {
         const punt = gF.totalDiasPres > 0 ? +(((gF.totalDiasPres - rTard.diasConIncidente) / gF.totalDiasPres) * 100).toFixed(1) : null;

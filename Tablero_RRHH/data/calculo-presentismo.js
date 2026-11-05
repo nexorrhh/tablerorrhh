@@ -280,3 +280,22 @@ export function ausentismoDetalleMotivoPeriodo(rawAusGroup, allPeriodos, mapaAus
 export function totalHorasTrabajadas(totalNormales, ext50Desglose, totalExt100) {
   return Math.round(totalNormales) + ext50Desglose.semana + ext50Desglose.sabado + Math.round(totalExt100);
 }
+
+// Cantidad de ausencias (días con al menos un evento 'ausente' por persona) en los
+// períodos dados y, opcionalmente, dentro de un rango de fechas (quincenas). Excluye
+// vacaciones, viajes y feriados, igual que las horas de ausentismo.
+export function contarAusencias(rawAusGroup, periodos, fechaDesde = null, fechaHasta = null) {
+  const dias = new Set();
+  rawAusGroup.forEach(e => {
+    if (periodos && !periodos.includes(e.periodo)) return;
+    if (fechaDesde && (e.fecha < fechaDesde || e.fecha > fechaHasta)) return;
+    if (CODIGOS_EXCLUIDOS_AUSENTISMO.has(e.codigo_justificacion)) return;
+    dias.add(`${e.legajo}|${e.fecha}`);
+  });
+  return dias.size;
+}
+
+// Horas de permiso = minutos de tardanzas + salidas anticipadas (de resumenTardanzas).
+export function horasPermiso(resumen) {
+  return ((resumen.minTarde || 0) + (resumen.minTemprano || 0)) / 60;
+}

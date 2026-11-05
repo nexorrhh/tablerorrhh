@@ -464,7 +464,7 @@ async function guardarEnSupabase(mensual, detalle, tardanzas, periodo, empresa) 
   } catch (e) {
     // Solo se cae al método anterior si la función todavía no está instalada en
     // Supabase (PGRST202 / 404). Cualquier otro error se informa tal cual.
-    if (!/PGRST202|Supabase 404/.test(e.message)) throw new Error(`Error al guardar: ${e.message}`);
+    if (!/PGRST202|Supabase 404/.test(e.message)) throw e;
     console.warn('rrhh_cargar_tango no instalada; se usa la carga por lotes (no atómica).');
   }
   await guardarPorLotes(mensualU, detalleP, tardanzasU, periodo, empresa, legajosArchivo);

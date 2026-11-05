@@ -7629,3 +7629,9 @@ html[data-tema="oscuro"] .desem__pendiente-fila:hover { background: rgba(255,255
   outline: 2px solid var(--color-primario) !important;
   outline-offset: 2px !important;
 }
+
+/* Cantidad al lado de las horas en las tarjetas de ausentismo y permisos ("12h · 3 ausencias") */
+.pind__kpi-cant { font-size: 0.72em; font-weight: 600; color: var(--color-texto-sec); white-space: nowrap; }
+
+/* Observación de Capataz al lado de la OT en el tooltip ("OT 596 · ot 1") */
+.pres__ot-tooltip__obs { opacity: 0.75; font-weight: 400; }

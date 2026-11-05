@@ -3,6 +3,7 @@ import { MESES, MESES_CORTO, htmlError } from './util.js';
 import { obtenerClasificacionPuestos, tipoPuesto } from '../data/clasificacion-puestos.js';
 import { obtenerClasificacionAusencias, categoriaAusencia } from '../data/clasificacion-ausencias.js';
 import { crearOrdenTabla } from './tabla-ordenable.js';
+import { traerHorasOT } from './horas-ot.js';
 
 const TIPO_LABEL = { mensual: 'Mensual', quincenal: 'Quincenal', sin_asignar: 'Sin asignar' };
 
@@ -139,7 +140,7 @@ function mostrarTooltipOT(elBarra, clientX, clientY) {
     ${segmentos.map(o => `
       <div class="pres__ot-tooltip__fila">
         <span class="pres__ot-tooltip__dot" style="background:${colorDeOT(o.etiqueta)}"></span>
-        <span class="pres__ot-tooltip__label">${eP(o.etiqueta)}</span>
+        <span class="pres__ot-tooltip__label">${eP(o.etiqueta)}${o.obs ? ` <span class="pres__ot-tooltip__obs">· ${eP(o.obs)}</span>` : ''}</span>
         <span class="pres__ot-tooltip__valor">${o.horas.toFixed(1)}h</span>
       </div>`).join('')}
     <div class="pres__ot-tooltip__total"><span>Total</span><span>${total.toFixed(1)}h</span></div>
@@ -450,7 +451,7 @@ export async function renderizarPresentismoPersonas(contenedor) {
             // Se trae también lo anómalo (no solo anomalo=eq.false): renderDetalleDia lo separa
             // y lo muestra como aviso en vez de descartarlo en silencio (ver celdaOT).
             persona?.empresa
-              ? sbTraerTodo(`horas_ot_detalle?legajo=eq.${legajo}&periodo=eq.${periodoActivo}&empresa=eq.${persona.empresa}&select=fecha,ot,operacion,horas,anomalo&order=id.asc`)
+              ? traerHorasOT(`legajo=eq.${legajo}&periodo=eq.${periodoActivo}&empresa=eq.${persona.empresa}`, 'fecha,ot,operacion,horas,anomalo')
               : Promise.resolve([]),
           ]);
           detalleCache.set(cacheKey, detalle);
@@ -535,6 +536,8 @@ export function renderDetalleDia(detalle, persona, eventos = [], otDelMes = [], 
       if (!otPorFecha.has(o.fecha)) otPorFecha.set(o.fecha, []);
       otPorFecha.get(o.fecha).push({
         etiqueta: o.ot ? `OT ${o.ot}` : (o.operacion || 'Sin OT'),
+        // Observación de Capataz (ej. "ot 1", "ot d"): se muestra al lado de la OT en el tooltip.
+        obs: o.observacion || '',
         horas: +o.horas || 0,
       });
     });

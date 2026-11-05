@@ -12,9 +12,10 @@ import {
   fetchTodasFilas, fmtNum, fmtPeriodo, fmtFecha, EMP_LABEL,
   CATEGORIAS_TABLA, CATEGORIA_LABEL, CATEGORIA_COLOR, CODIGOS_EXCLUIDOS_AUSENTISMO,
   renderDias, renderEventosTardanza, mesesDisponibles, rangoQuincena, reconstruirFilasDesdeDetalle,
-  totalHorasTrabajadas,
+  totalHorasTrabajadas, contarAusencias, horasPermiso, htmlAusencias, htmlPermisos,
 } from './presentismo-indicadores.js';
 import { renderDetalleDia, habilitarTooltipsOT } from './presentismo-personas.js';
+import { traerHorasOT } from './horas-ot.js';
 import { sbTraerTodo, sbTraerTodoCache } from '../data/supabase-rest.js';
 import { htmlError } from './util.js';
 
@@ -195,7 +196,7 @@ export async function renderizarPresentismoFicha(contenedor) {
         // Se trae también lo anómalo (no solo anomalo=eq.false): renderDetalleDia lo separa y
         // lo muestra como aviso en vez de descartarlo en silencio (ver celdaOT).
         const otRows = persona?.empresa
-          ? await fetchTodasFilas(`${SUPABASE_URL}/rest/v1/horas_ot_detalle?legajo=eq.${legajo}&empresa=eq.${persona.empresa}&select=fecha,periodo,ot,operacion,horas,anomalo&order=id.asc`)
+          ? await traerHorasOT(`legajo=eq.${legajo}&empresa=eq.${persona.empresa}`, 'fecha,periodo,ot,operacion,horas,anomalo')
           : [];
         datos = { rows, eventos, detalle, otRows, persona };
         cache.set(legajo, datos);
@@ -321,9 +322,9 @@ export async function renderizarPresentismoFicha(contenedor) {
 
         <div class="pind__kpis pind__kpis--sm" style="margin-top:8px">
           <div class="pind__kpi pind__kpi--clickable" id="ficha-kpi-aus" title="Ver detalle histórico de ausentismo">
-            <span class="pind__kpi-num" id="ficha-kv-aus" style="color:#dc2626">${fmtNum(g.totalAus)}</span>
+            <span class="pind__kpi-num" id="ficha-kv-aus" style="color:#dc2626">${htmlAusencias(g.totalAus, contarAusencias(rawAus, allPeriodos))}</span>
             <span class="pind__kpi-lbl">Hs. ausentismo <span class="pind__kpi-ver">▸ Ver</span></span>
-            <span class="pind__kpi-sub">Justificadas + sin justificar</span>
+            <span class="pind__kpi-sub">Horas (justificadas + sin justificar) · días de ausencia</span>
           </div>
           <div class="pind__kpi">
             <span class="pind__kpi-num" id="ficha-kv-idx" style="color:${g.colorIdx}">${g.idxAus}%</span>
@@ -339,9 +340,9 @@ export async function renderizarPresentismoFicha(contenedor) {
 
         <div class="pind__kpis pind__kpis--sm" style="margin-top:8px">
           <div class="pind__kpi pind__kpi--clickable" id="ficha-kpi-tard" title="Ver detalle histórico de tardanzas">
-            <span class="pind__kpi-num" id="ficha-kv-tard" style="color:#d97706">${g.diasTarde + g.diasTemprano}</span>
-            <span class="pind__kpi-lbl">Tardanzas y salidas anticipadas <span class="pind__kpi-ver">▸ Ver</span></span>
-            <span class="pind__kpi-sub" id="ficha-kv-tard-sub">${g.diasTarde} tarde${g.diasTarde !== 1 ? 's' : ''} · ${g.diasTemprano} salida${g.diasTemprano !== 1 ? 's' : ''} anticipada${g.diasTemprano !== 1 ? 's' : ''}</span>
+            <span class="pind__kpi-num" id="ficha-kv-tard" style="color:#d97706">${htmlPermisos(horasPermiso(g), g.diasTarde + g.diasTemprano)}</span>
+            <span class="pind__kpi-lbl">Hs. de permiso <span class="pind__kpi-ver">▸ Ver</span></span>
+            <span class="pind__kpi-sub" id="ficha-kv-tard-sub">Tardanzas y salidas: ${g.diasTarde} tarde${g.diasTarde !== 1 ? 's' : ''} · ${g.diasTemprano} salida${g.diasTemprano !== 1 ? 's' : ''} anticipada${g.diasTemprano !== 1 ? 's' : ''}</span>
           </div>
           <div class="pind__kpi">
             <span class="pind__kpi-num" id="ficha-kv-punt" style="color:${g.colorPunt}">${g.indicePuntualidad != null ? g.indicePuntualidad + '%' : '—'}</span>
@@ -483,7 +484,8 @@ export async function renderizarPresentismoFicha(contenedor) {
         : fmtPeriodo(per);
       kv('esp').textContent = fmtNum(gF.totalEsp);
       kv('cumpl').textContent = gF.cumplimiento + '%'; kv('cumpl').style.color = gF.colorCumpl;
-      kv('aus').textContent = fmtNum(gF.totalAus);
+      const [fDesde, fHasta] = (per && vista !== 'mensual') ? rangoQuincena(per, vista) : [null, null];
+      kv('aus').innerHTML = htmlAusencias(gF.totalAus, contarAusencias(rawAus, per ? [per] : allPeriodos, fDesde, fHasta));
       kv('idx').textContent = gF.idxAus + '%'; kv('idx').style.color = gF.colorIdx;
       kv('pres').textContent = gF.presGlobal + '%'; kv('pres').style.color = gF.colorPres;
 
@@ -492,8 +494,8 @@ export async function renderizarPresentismoFicha(contenedor) {
       kv('ext50-sub').textContent = `En semana: ${fmtNum(gF.ext50Semana)}h · Sábados: ${fmtNum(gF.ext50Sabado)}h`;
       kv('ext100').textContent = fmtNum(Math.round(gF.totalExt100)) + 'h';
 
-      kv('tard').textContent = gF.diasTarde + gF.diasTemprano;
-      kv('tard-sub').textContent = `${gF.diasTarde} tarde${gF.diasTarde !== 1 ? 's' : ''} · ${gF.diasTemprano} salida${gF.diasTemprano !== 1 ? 's' : ''} anticipada${gF.diasTemprano !== 1 ? 's' : ''}`;
+      kv('tard').innerHTML = htmlPermisos(horasPermiso(gF), gF.diasTarde + gF.diasTemprano);
+      kv('tard-sub').textContent = 'Tardanzas y salidas: ' + `${gF.diasTarde} tarde${gF.diasTarde !== 1 ? 's' : ''} · ${gF.diasTemprano} salida${gF.diasTemprano !== 1 ? 's' : ''} anticipada${gF.diasTemprano !== 1 ? 's' : ''}`;
       kv('punt').textContent = gF.indicePuntualidad != null ? gF.indicePuntualidad + '%' : '—';
       kv('punt').style.color = gF.colorPunt;
     }
@@ -1073,9 +1075,9 @@ export async function renderizarPresentismoFicha(contenedor) {
 
           <div class="pind__kpis pind__kpis--sm fg-pdf-bloque" style="margin-top:8px">
             <div class="pind__kpi pind__kpi--clickable" id="fg-kpi-aus" title="Ver detalle histórico de ausentismo">
-              <span class="pind__kpi-num" id="fg-kv-aus" style="color:#dc2626">${fmtNum(g.totalAus)}</span>
+              <span class="pind__kpi-num" id="fg-kv-aus" style="color:#dc2626">…</span>
               <span class="pind__kpi-lbl">Hs. ausentismo <span class="pind__kpi-ver">▸ Ver</span></span>
-              <span class="pind__kpi-sub">Justificadas + sin justificar</span>
+              <span class="pind__kpi-sub">Horas (justificadas + sin justificar) · días de ausencia</span>
             </div>
             <div class="pind__kpi">
               <span class="pind__kpi-num" id="fg-kv-idx" style="color:${g.colorIdx}">${g.idxAus}%</span>
@@ -1091,8 +1093,8 @@ export async function renderizarPresentismoFicha(contenedor) {
 
           <div class="pind__kpis pind__kpis--sm fg-pdf-bloque" style="margin-top:8px">
             <div class="pind__kpi pind__kpi--clickable" id="fg-kpi-tard" title="Ver detalle histórico de tardanzas">
-              <span class="pind__kpi-num" id="fg-kv-tard" style="color:#d97706">0</span>
-              <span class="pind__kpi-lbl">Tardanzas y salidas anticipadas <span class="pind__kpi-ver">▸ Ver</span></span>
+              <span class="pind__kpi-num" id="fg-kv-tard" style="color:#d97706">…</span>
+              <span class="pind__kpi-lbl">Hs. de permiso <span class="pind__kpi-ver">▸ Ver</span></span>
               <span class="pind__kpi-sub" id="fg-kv-tard-sub"></span>
             </div>
             <div class="pind__kpi">
@@ -1263,7 +1265,7 @@ export async function renderizarPresentismoFicha(contenedor) {
         }
       }
 
-      estadoActual = { rows, detalle, rawTard, ext50Filas, setLegajos, allPeriodos, labels };
+      estadoActual = { rows, detalle, rawTard, rawAus, ext50Filas, setLegajos, allPeriodos, labels };
       aplicarFiltroGrupo();
     }
 
@@ -1271,7 +1273,7 @@ export async function renderizarPresentismoFicha(contenedor) {
     // acumulado de todo el histórico si está en "Todos los meses"). No toca los gráficos.
     function aplicarFiltroGrupo() {
       if (!estadoActual) return;
-      const { rows, detalle, rawTard, ext50Filas, setLegajos, allPeriodos, labels } = estadoActual;
+      const { rows, detalle, rawTard, rawAus, ext50Filas, setLegajos, allPeriodos, labels } = estadoActual;
       const per = selPeriodo.value;
       const rowsF = per ? rows.filter(r => r.periodo === per) : rows;
       const detalleF = per ? detalle.filter(d => d.periodo === per) : detalle;
@@ -1297,7 +1299,7 @@ export async function renderizarPresentismoFicha(contenedor) {
       kv('sub-trab').textContent = per ? fmtPeriodo(per) : `${labels[0]} – ${labels[labels.length - 1]}`;
       kv('esp').textContent = fmtNum(gF.totalEsp);
       kv('cumpl').textContent = gF.cumplimiento + '%'; kv('cumpl').style.color = gF.colorCumpl;
-      kv('aus').textContent = fmtNum(gF.totalAus);
+      kv('aus').innerHTML = htmlAusencias(gF.totalAus, contarAusencias(rawAus, per ? [per] : allPeriodos));
       kv('idx').textContent = gF.idxAus + '%'; kv('idx').style.color = gF.colorIdx;
       kv('pres').textContent = gF.presGlobal + '%'; kv('pres').style.color = gF.colorPres;
 
@@ -1306,8 +1308,8 @@ export async function renderizarPresentismoFicha(contenedor) {
       kv('ext50-sub').textContent = `En semana: ${fmtNum(gF.ext50Semana)}h · Sábados: ${fmtNum(gF.ext50Sabado)}h`;
       kv('ext100').textContent = fmtNum(Math.round(gF.totalExt100)) + 'h';
 
-      kv('tard').textContent = gF.diasTarde + gF.diasTemprano;
-      kv('tard-sub').textContent = `${gF.diasTarde} tarde${gF.diasTarde !== 1 ? 's' : ''} · ${gF.diasTemprano} salida${gF.diasTemprano !== 1 ? 's' : ''} anticipada${gF.diasTemprano !== 1 ? 's' : ''}`;
+      kv('tard').innerHTML = htmlPermisos(horasPermiso(gF), gF.diasTarde + gF.diasTemprano);
+      kv('tard-sub').textContent = 'Tardanzas y salidas: ' + `${gF.diasTarde} tarde${gF.diasTarde !== 1 ? 's' : ''} · ${gF.diasTemprano} salida${gF.diasTemprano !== 1 ? 's' : ''} anticipada${gF.diasTemprano !== 1 ? 's' : ''}`;
       kv('punt').textContent = gF.indicePuntualidad != null ? gF.indicePuntualidad + '%' : '—';
       kv('punt').style.color = gF.colorPunt;
 
