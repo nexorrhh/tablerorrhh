@@ -10,6 +10,12 @@ import {
 } from './vacaciones-comun.js';
 import { sumarDias, lunesDe, diasCorridos, reincorporacion } from '../data/vacaciones-reglas.js';
 import { resumenSemanal, nivelCobertura } from '../data/vacaciones-cobertura.js';
+import { cargarDatosProyeccion } from '../data/proyeccion-horas-datos.js';
+import { periodoActual, mesesDesde, diasHabilesDelMes, proyeccionPorGrupo, diasDeVacacionesPorPersona } from '../data/proyeccion-horas.js';
+import { fmtHs, fmtPeriodoCorto } from './proyeccion-horas.js';
+
+// Opciones de la sección de horas: duran mientras la página esté abierta.
+const horasUI = { cantidad: 6, ausentismo: true };
 
 export async function renderizarVacacionesResumen(contenedor, irA) {
   let ctx = await cargarConManejo(contenedor, cargarContexto);
@@ -84,6 +90,12 @@ export async function renderizarVacacionesResumen(contenedor, irA) {
           </table></div>
         </section>
 
+        <section class="vac__panel" id="vac-horas">
+          <div class="vac__panel-cab"><h3>Horas mensuales proyectadas</h3>
+            <button type="button" class="vac__link" data-ir="horas">Ver por puesto</button></div>
+          <div class="pres__loading">Calculando horas…</div>
+        </section>
+
         <div class="vac__dos">
           <section class="vac__panel">
             <div class="vac__panel-cab"><h3>Próximas salidas (45 días)</h3></div>
@@ -134,7 +146,66 @@ export async function renderizarVacacionesResumen(contenedor, irA) {
     }));
     contenedor.querySelectorAll('[data-nuevo]').forEach(b => b.addEventListener('click', () =>
       abrirModalPeriodo({ ctx, emp: ctx.empleadoPor.get(b.dataset.nuevo), escenarioId: escId, desde: b.dataset.desde || null, alGuardar: recargar })));
+
+    pintarHoras(contenedor.querySelector('#vac-horas'), ctx, est, emps, plan, irA);
   }
 
   pintar();
+}
+
+// Horas mensuales por sector con las vacaciones del plan elegido arriba (oficial o
+// escenario): cuántas horas de armado, soldadura, etc. van a haber cada mes. Se carga
+// aparte para no demorar el resto del resumen.
+async function pintarHoras(seccion, ctx, est, emps, plan, irA) {
+  let datos;
+  try {
+    datos = await cargarDatosProyeccion();
+  } catch (err) {
+    console.error(err);
+    if (seccion.isConnected) seccion.querySelector('.pres__loading').outerHTML = `<p class="vac__nota">No se pudieron calcular las horas: ${e(err.message)}</p>`;
+    return;
+  }
+  if (!seccion.isConnected) return; // se repintó mientras cargaba
+
+  const nombreSector = id => (id == null ? 'Sin sector' : ctx.sectorPorId.get(id)?.nombre || `Sector ${id}`);
+  const columnas = mesesDesde(periodoActual(), horasUI.cantidad).map(p => ({ periodo: p, dias: diasHabilesDelMes(p, datos.feriadosSet) }));
+  const { grupos, totales } = proyeccionPorGrupo({
+    personas: emps.map(x => ({ empresa: x.empresa, legajo: x.legajo, desc_puesto: x.puesto, grupo: x.sectorId ?? null })),
+    resolverJornada: datos.resolverJornada, ausentismo: datos.ausentismo, aplicarAusentismo: horasUI.ausentismo,
+    diasVac: diasDeVacacionesPorPersona(plan), columnas,
+  });
+  const orden = new Map(ctx.sectores.map((s, i) => [s.id, i]));
+  const filas = [...grupos.values()].sort((a, b) => (orden.get(a.grupo) ?? 1e9) - (orden.get(b.grupo) ?? 1e9));
+  const escId = est.escenarioId ?? null;
+  const nombrePlan = escId == null ? 'de la planificación oficial' : `del escenario "${ctx.escenarios.find(s => s.id === escId)?.nombre || escId}"`;
+
+  const celda = m => `<td class="vac-h__celda" title="${e(`Teóricas: ${fmtHs(m.teoricas)}\nVacaciones: − ${fmtHs(m.vacaciones)} (${m.deVacaciones} persona${m.deVacaciones === 1 ? '' : 's'})${horasUI.ausentismo ? `\nAusentismo histórico: − ${fmtHs(m.teoricas - m.vacaciones - m.disponibles)}` : ''}\nDisponibles: ${fmtHs(m.disponibles)}`)}">
+      <b>${fmtHs(m.disponibles)}</b>
+      ${m.vacaciones > 0 ? `<span class="vac-h__vac">− ${fmtHs(m.vacaciones)} vac. · ${m.deVacaciones} pers.</span>` : '<span class="vac-h__sub">sin vacaciones</span>'}
+    </td>`;
+
+  seccion.innerHTML = `
+    <div class="vac__panel-cab"><h3>Horas mensuales proyectadas</h3>
+      <button type="button" class="vac__link" data-ir="horas">Ver por puesto</button></div>
+    <div class="vac-h__opciones">
+      <label class="vac__campo">Meses
+        <select class="venc__input" data-horas="cantidad">${[3, 6, 12].map(n => `<option ${n === horasUI.cantidad ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+      <label class="ph__toggle"><input type="checkbox" data-horas="ausentismo" ${horasUI.ausentismo ? 'checked' : ''}> Descontar ausentismo histórico</label>
+    </div>
+    <p class="vac__nota">Horas disponibles de cada sector por mes con las vacaciones ${e(nombrePlan)}: jornada proyectada (${e(datos.textoJornada)}) × días hábiles (lunes a viernes, sin feriados ni horas extra), menos sus días de vacaciones${horasUI.ausentismo ? ' y el ausentismo histórico de su puesto' : ''}. Respeta los filtros de arriba.</p>
+    <div class="vac-m"><table class="vac-h__tabla">
+      <thead><tr><th class="vac-m__sector">Sector</th><th>Personas</th>${columnas.map(c => `<th>${fmtPeriodoCorto(c.periodo)}<span class="vac-h__sub">${c.dias.length} días háb.</span></th>`).join('')}</tr></thead>
+      <tbody>
+        ${filas.map(g => `<tr><th class="vac-m__sector">${e(nombreSector(g.grupo))}</th><td class="vac-h__n">${g.personas}</td>${g.porMes.map(celda).join('')}</tr>`).join('')}
+        <tr class="vac-h__total"><th class="vac-m__sector">Total</th><td class="vac-h__n">${emps.length}</td>${totales.map(celda).join('')}</tr>
+      </tbody>
+    </table></div>`;
+
+  seccion.querySelector('[data-horas="cantidad"]').addEventListener('change', ev => {
+    horasUI.cantidad = Number(ev.target.value); pintarHoras(seccion, ctx, est, emps, plan, irA);
+  });
+  seccion.querySelector('[data-horas="ausentismo"]').addEventListener('change', ev => {
+    horasUI.ausentismo = ev.target.checked; pintarHoras(seccion, ctx, est, emps, plan, irA);
+  });
+  seccion.querySelectorAll('[data-ir]').forEach(b => b.addEventListener('click', () => irA?.(b.dataset.ir)));
 }

@@ -244,6 +244,7 @@ const PANTALLAS = {
                                args: () => [sub => (sub === 'configuracion' ? cambiarModulo('configuracion', 'vacaciones') : cambiarSubmodulo(sub))] },
   'vac-planificacion':       { m: () => import('./components/vacaciones-planificacion.js'), f: 'renderizarVacacionesPlanificacion' },
   'vac-cobertura':           { m: () => import('./components/vacaciones-mapa.js'),          f: 'renderizarVacacionesMapa' },
+  'proyeccion-horas':        { m: () => import('./components/proyeccion-horas.js'),         f: 'renderizarProyeccionHoras' },
   'vac-escenarios':          { m: () => import('./components/vacaciones-escenarios.js'),    f: 'renderizarVacacionesEscenarios', args: () => [cambiarSubmodulo] },
   'vac-saldos':              { m: () => import('./components/vacaciones-saldos.js'),        f: 'renderizarVacacionesSaldos' },
   'vac-config':              { m: () => import('./components/vacaciones-config.js'),        f: 'renderizarVacacionesConfig' },

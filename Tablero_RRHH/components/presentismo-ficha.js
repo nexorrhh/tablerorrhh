@@ -240,6 +240,14 @@ export async function renderizarPresentismoFicha(contenedor) {
     // mostrarlo para mensuales, donde el balance se calcula justamente contra "reales" (los
     // quincenales usan "trabajadas" como criterio, ver presentismo-personas.js). No viene
     // como columna acumulada en rrhh_horas_mensual, así que se suma del detalle diario.
+    // Mensuales: las horas trabajadas totales son las REALES (todo el tiempo en el trabajo,
+    // del detalle diario), no las normales liquidadas — no cobran extras, así que las horas
+    // de más no aparecen en "normales" ni en "extras". Quincenales: normales + extras.
+    const esMensual = tipo === 'mensual';
+    const horasReales = (per, desde = null, hasta = null) => detalle
+      .filter(d => (!per || d.periodo === per) && (!desde || (d.fecha >= desde && d.fecha <= hasta)))
+      .reduce((t, d) => t + (+d.hs_reales || 0), 0);
+
     const realesPorPeriodo = allPeriodos.map(p => Math.round(
       detalle.filter(d => d.periodo === p).reduce((s, d) => s + (+d.hs_reales || 0), 0)
     ));
@@ -286,9 +294,9 @@ export async function renderizarPresentismoFicha(contenedor) {
 
         <div class="pind__kpis pind__kpis--sm">
           <div class="pind__kpi">
-            <span class="pind__kpi-num" id="ficha-kv-total">${fmtNum(g.totalTrab + g.totalExt50 + g.totalExt100)}</span>
+            <span class="pind__kpi-num" id="ficha-kv-total">${fmtNum(esMensual ? horasReales(null) : g.totalTrab + g.totalExt50 + g.totalExt100)}</span>
             <span class="pind__kpi-lbl">Horas trabajadas totales</span>
-            <span class="pind__kpi-sub" id="ficha-kv-sub-trab">${labels[0]} – ${labels[labels.length - 1]}</span>
+            <span class="pind__kpi-sub" id="ficha-kv-sub-trab">${esMensual ? 'Horas reales · ' : ''}${labels[0]} – ${labels[labels.length - 1]}</span>
           </div>
           <div class="pind__kpi">
             <span class="pind__kpi-num" id="ficha-kv-esp" style="color:var(--color-texto-sec)">${fmtNum(g.totalEsp)}</span>
@@ -475,13 +483,16 @@ export async function renderizarPresentismoFicha(contenedor) {
       const kv = id => contFicha.querySelector(`#ficha-kv-${id}`);
       // Total = normales + extra 50% + extra 100%, con los mismos valores que muestran sus tarjetas.
       const totalExt50Real = gF.ext50Semana + gF.ext50Sabado;
-      kv('total').textContent = fmtNum(totalHorasTrabajadas(gF.totalTrab, { semana: gF.ext50Semana, sabado: gF.ext50Sabado }, gF.totalExt100));
+      const [qDesde, qHasta] = per && vista !== 'mensual' ? rangoQuincena(per, vista) : [null, null];
+      kv('total').textContent = fmtNum(esMensual
+        ? horasReales(per || null, qDesde, qHasta)
+        : totalHorasTrabajadas(gF.totalTrab, { semana: gF.ext50Semana, sabado: gF.ext50Sabado }, gF.totalExt100));
       kv('trab').textContent = fmtNum(gF.totalTrab) + 'h';
-      kv('sub-trab').textContent = !per
+      kv('sub-trab').textContent = (esMensual ? 'Horas reales · ' : '') + (!per
         ? `${labels[0]} – ${labels[labels.length - 1]}`
         : vista === 'q1' ? `1ra quincena · ${fmtPeriodo(per)}`
         : vista === 'q2' ? `2da quincena · ${fmtPeriodo(per)}`
-        : fmtPeriodo(per);
+        : fmtPeriodo(per));
       kv('esp').textContent = fmtNum(gF.totalEsp);
       kv('cumpl').textContent = gF.cumplimiento + '%'; kv('cumpl').style.color = gF.colorCumpl;
       const [fDesde, fHasta] = (per && vista !== 'mensual') ? rangoQuincena(per, vista) : [null, null];

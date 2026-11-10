@@ -7844,3 +7844,62 @@ html[data-tema="oscuro"] .desem__pendiente-fila:hover { background: rgba(255,255
 .vac-g__barra--tango-no { outline: 2px dashed var(--vac-rojo); outline-offset: 1px; }
 .vac-g__barra--tango-parcial { outline: 2px dashed var(--vac-amarillo); outline-offset: 1px; }
 .vac-g__barra-muestra.vac-g__barra--tango-ok { opacity: .55; }
+
+/* ── Proyección de horas (port de panel-produccion → Planificación → Capacidad) ── */
+.ph { display: flex; flex-direction: column; gap: var(--espacio-m); }
+.ph__filtros { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--espacio-s) var(--espacio-m); }
+.ph__pills { display: inline-flex; border: 1px solid var(--color-borde); border-radius: 999px; overflow: hidden; background: var(--color-fondo-tarjeta); }
+.ph__pills button { border: 0; background: none; padding: 7px 14px; font: inherit; font-size: 0.8rem; color: var(--color-texto-sec); cursor: pointer; }
+.ph__pills button.activo { background: var(--color-primario); color: #fff; }
+.ph__toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--color-texto-sec); padding-bottom: 8px; cursor: pointer; }
+.ph__kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--espacio-s); }
+.ph__kpi { background: var(--color-fondo-tarjeta); border: 1px solid var(--color-borde); border-radius: var(--radio-s); padding: 12px 16px; display: flex; flex-direction: column; gap: 2px; }
+.ph__kpi b { font-size: 1.5rem; color: var(--color-texto); font-variant-numeric: tabular-nums; }
+.ph__kpi--destacado { border-color: var(--color-primario); background: var(--color-primario-claro); }
+.ph__kpi--destacado b { color: var(--color-primario); }
+.ph__kpi-lbl { font-size: 0.75rem; font-weight: 600; color: var(--color-texto-sec); }
+.ph__kpi-sub { font-size: 0.72rem; color: var(--color-texto-muted); }
+.ph__leyenda, .ph__nota { font-size: 0.78rem; color: var(--color-texto-sec); margin: 0; line-height: 1.6; }
+.ph__tag { display: inline-block; font-size: 0.65rem; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: var(--color-borde); color: var(--color-texto-sec); }
+.ph__tag--real { background: var(--color-texto-muted); color: #fff; }
+.ph__tag--curso { background: var(--color-primario); color: #fff; }
+.ph__tag--col { display: block; width: max-content; margin: 3px auto 0; }
+.ph__scroll { overflow-x: auto; border: 1px solid var(--color-borde); border-radius: var(--radio-s); background: var(--color-fondo-tarjeta); }
+.ph__tabla { border-collapse: collapse; width: 100%; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.ph__tabla th, .ph__tabla td { padding: 8px 10px; border-bottom: 1px solid var(--color-borde); text-align: right; vertical-align: top; white-space: nowrap; }
+.ph__tabla th:first-child, .ph__tabla td:first-child { text-align: left; position: sticky; left: 0; background: var(--color-fondo-tarjeta); z-index: 1; }
+.ph__tabla thead th { color: var(--color-texto-sec); font-weight: 600; text-align: center; }
+.ph__fila-dias td { color: var(--color-texto-sec); font-size: 0.75rem; text-align: center; }
+.ph__col-real { background: color-mix(in srgb, var(--color-texto-muted) 7%, transparent); }
+.ph__col-actual { background: var(--color-primario-claro); }
+.ph__fila-clic { cursor: pointer; }
+.ph__fila-clic:hover td { background: var(--color-primario-claro); }
+.ph__fila-clic:focus-visible { outline: 2px solid var(--color-primario); outline-offset: -2px; }
+.ph__chevron { display: inline-block; transition: transform .15s; color: var(--color-texto-muted); }
+.ph__chevron.abierto { transform: rotate(90deg); }
+.ph__sub { display: block; font-size: 0.7rem; color: var(--color-texto-muted); }
+.ph__vac { color: var(--color-advertencia); }
+.ph__azul { color: var(--color-primario); }
+.ph__gris { color: var(--color-texto-muted); font-weight: 400; }
+.ph__marca { display: block; font-size: 0.65rem; color: var(--color-texto-muted); }
+.ph__fila-total td { font-weight: 700; border-top: 2px solid var(--color-borde); }
+.ph__fila-detalle td { background: var(--color-fondo); white-space: normal; }
+.ph__personas { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 6px; }
+/* Cada persona en su propia "tarjeta": en varias columnas, sin separación la jornada de
+   una se leía como si fuera de la siguiente. */
+.ph__personas li { display: flex; gap: 8px; align-items: baseline; font-size: 0.78rem; padding: 6px 10px; border: 1px solid var(--color-borde); border-radius: 8px; background: var(--color-fondo-tarjeta); }
+.ph__personas li span:first-child { flex: 1; }
+.ph__chip { font-size: 0.65rem; padding: 1px 6px; border-radius: 999px; background: var(--vac-amarillo-fondo, var(--color-borde)); color: var(--color-texto); }
+@media (prefers-reduced-motion: reduce) { .ph__chevron { transition: none; } }
+
+/* Vacaciones → Resumen: horas mensuales por sector */
+.vac-h__opciones { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--espacio-s) var(--espacio-m); }
+.vac-h__tabla { border-collapse: collapse; font-size: 0.8rem; width: max-content; min-width: 100%; font-variant-numeric: tabular-nums; }
+.vac-h__tabla th, .vac-h__tabla td { padding: 6px 10px; border-bottom: 1px solid var(--color-borde); white-space: nowrap; }
+.vac-h__tabla thead th { color: var(--color-texto-sec); font-weight: 600; text-align: right; }
+.vac-h__tabla thead th.vac-m__sector { text-align: left; }
+.vac-h__celda { text-align: right; }
+.vac-h__n { text-align: right; color: var(--color-texto-sec); }
+.vac-h__sub { display: block; font-size: 0.68rem; font-weight: 400; color: var(--color-texto-muted); }
+.vac-h__vac { display: block; font-size: 0.68rem; color: var(--color-advertencia); }
+.vac-h__total th, .vac-h__total td { font-weight: 700; border-top: 2px solid var(--color-borde); }

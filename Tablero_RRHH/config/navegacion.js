@@ -165,6 +165,7 @@ export const navegacion = [
       { id: 'resumen',        titulo: 'Resumen',        tipo: 'vac-resumen' },
       { id: 'planificacion',  titulo: 'Planificación',  tipo: 'vac-planificacion' },
       { id: 'cobertura',      titulo: 'Cobertura',      tipo: 'vac-cobertura' },
+      { id: 'horas',          titulo: 'Proyección de horas', tipo: 'proyeccion-horas' },
       { id: 'escenarios',     titulo: 'Escenarios',     tipo: 'vac-escenarios' },
       { id: 'saldos',         titulo: 'Saldos',         tipo: 'vac-saldos' },
     ],

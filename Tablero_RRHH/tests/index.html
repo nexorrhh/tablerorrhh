@@ -20,7 +20,8 @@
   <script type="module">
     import { casos as casosPresentismo } from './casos-presentismo.js';
     import { casos as casosVacaciones } from './casos-vacaciones.js';
-    const res = [...casosPresentismo, ...casosVacaciones].map(c => {
+    import { casos as casosProyeccion } from './casos-proyeccion.js';
+    const res = [...casosPresentismo, ...casosVacaciones, ...casosProyeccion].map(c => {
       try { c.fn(); return { nombre: c.nombre, ok: true }; }
       catch (e) { return { nombre: c.nombre, ok: false, error: e.message }; }
     });
