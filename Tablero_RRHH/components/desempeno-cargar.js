@@ -190,11 +190,11 @@ export async function montarEvaluacionAnual(formEl, persona, ctx) {
   const tipo = tipoPuesto(persona.desc_puesto, mapaClasif);
 
   if (tipo !== 'mensual' && tipo !== 'quincenal') {
-    formEl.innerHTML = `<div class="pres__vacio">"${eP(persona.desc_puesto || 'Sin puesto')}" no está clasificado como mensual ni quincenal. Clasificalo en Horas y Presentismo → Parametrización antes de evaluar a esta persona.</div>`;
+    formEl.innerHTML = `<div class="pres__vacio">"${eP(persona.desc_puesto || 'Sin puesto')}" no está clasificado como mensual ni quincenal. Clasificalo en Configuración → Puestos antes de evaluar a esta persona.</div>`;
     return;
   }
   if (puestosExcluidos.has(normPuesto(persona.desc_puesto))) {
-    formEl.innerHTML = `<div class="pres__vacio">"${eP(persona.desc_puesto || 'Sin puesto')}" está excluido de la evaluación de desempeño (ver Desempeño → Parametrización → Personalizar por puesto).</div>`;
+    formEl.innerHTML = `<div class="pres__vacio">"${eP(persona.desc_puesto || 'Sin puesto')}" está excluido de la evaluación de desempeño (ver Configuración → Desempeño → Por puesto).</div>`;
     return;
   }
 

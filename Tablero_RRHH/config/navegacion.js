@@ -37,11 +37,6 @@ export const navegacion = [
         titulo: 'Indicadores',
         tipo: 'perm-indicadores',
       },
-      {
-        id: 'autorizadores',
-        titulo: 'Autorizadores',
-        tipo: 'perm-autorizadores',
-      },
     ],
   },
   {
@@ -143,7 +138,6 @@ export const navegacion = [
       { id: 'cargar',      titulo: 'Cargar datos',  tipo: 'pres-carga' },
       { id: 'horas-ot',    titulo: 'Horas por OT',  tipo: 'pres-horas-ot' },
       { id: 'horas-cruce', titulo: 'Cruce de Horas', tipo: 'pres-horas-cruce' },
-      { id: 'parametrizacion', titulo: 'Parametrización', tipo: 'pres-parametrizacion' },
     ],
   },
   {
@@ -157,7 +151,22 @@ export const navegacion = [
     submodulos: [
       { id: 'evaluaciones', titulo: 'Evaluaciones',     tipo: 'desem-evaluaciones' },
       { id: 'indicadores',  titulo: 'Indicadores',       tipo: 'desem-indicadores' },
-      { id: 'parametrizacion', titulo: 'Parametrización', tipo: 'desem-parametrizacion' },
+    ],
+  },
+  {
+    id: 'vacaciones',
+    titulo: 'Vacaciones',
+    descripcion: 'Planificación de vacaciones y cobertura operativa',
+    icono: 'calendario',
+    subtituloPanel: 'planificación del año',
+    orden: 5.2,
+    categoria: 'rrhh',
+    submodulos: [
+      { id: 'resumen',        titulo: 'Resumen',        tipo: 'vac-resumen' },
+      { id: 'planificacion',  titulo: 'Planificación',  tipo: 'vac-planificacion' },
+      { id: 'cobertura',      titulo: 'Cobertura',      tipo: 'vac-cobertura' },
+      { id: 'escenarios',     titulo: 'Escenarios',     tipo: 'vac-escenarios' },
+      { id: 'saldos',         titulo: 'Saldos',         tipo: 'vac-saldos' },
     ],
   },
   {
@@ -183,11 +192,6 @@ export const navegacion = [
         id: 'cumpleanos',
         titulo: 'Cumpleaños y Antigüedad',
         tipo: 'cumpleanos-antiguedad',
-      },
-      {
-        id: 'parametrizacion',
-        titulo: 'Parametrización',
-        tipo: 'plantel-parametrizacion',
       },
       {
         id: 'importar',
@@ -227,6 +231,28 @@ export const navegacion = [
         titulo: 'Proveedores',
         tipo: 'arca-proveedores',
       },
+    ],
+  },
+  {
+    id: 'configuracion',
+    titulo: 'Configuración',
+    descripcion: 'Parametrización del tablero, usuarios y módulos',
+    icono: 'personas',
+    subtituloPanel: 'pendientes de parametrizar',
+    orden: 99,
+    // Lo ven los administradores y quienes tengan el permiso "Parametrizar" (ver app.js →
+    // actualizarSidebarPara). Cada solapa pide su permiso: las de parametrización
+    // 'parametrizar' (los administradores también lo tienen) y Usuarios 'administrar'.
+    // `modulo`: la solapa se muestra solo si la persona puede ver ese módulo.
+    permisosModulo: ['administrar', 'parametrizar'],
+    submodulos: [
+      { id: 'pendientes',    titulo: 'Pendientes',                tipo: 'cfg-pendientes',          permiso: 'parametrizar' },
+      { id: 'puestos',       titulo: 'Puestos',                   tipo: 'plantel-parametrizacion', permiso: 'parametrizar' },
+      { id: 'presentismo',   titulo: 'Horas y Presentismo',       tipo: 'pres-parametrizacion',    permiso: 'parametrizar', modulo: 'presentismo' },
+      { id: 'desempeno',     titulo: 'Desempeño',                 tipo: 'desem-parametrizacion',   permiso: 'parametrizar', modulo: 'desempeno' },
+      { id: 'vacaciones',    titulo: 'Vacaciones',                tipo: 'vac-config',              permiso: 'parametrizar', modulo: 'vacaciones' },
+      { id: 'autorizadores', titulo: 'Autorizadores de permisos', tipo: 'perm-autorizadores',      permiso: 'parametrizar', modulo: 'permisos' },
+      { id: 'usuarios',      titulo: 'Usuarios',                  tipo: 'cfg-usuarios',            permiso: 'administrar' },
     ],
   },
 ];

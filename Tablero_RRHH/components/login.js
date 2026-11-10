@@ -82,7 +82,43 @@ function permisosDe(perfil) {
   if (perfil?.puede_autorizar_facturas) permisos.push('autorizarFacturas');
   if (perfil?.puede_autorizar_busquedas) permisos.push('autorizarBusquedas');
   if (perfil?.puede_eliminar_operativos) permisos.push('eliminarOperativos');
+  // Configuración: los administradores tienen todo; "Parametrizar" solo las solapas de
+  // parametrización y Pendientes (no Usuarios ni Módulos).
+  if (perfil?.es_admin) permisos.push('administrar');
+  if (perfil?.es_admin || perfil?.puede_parametrizar) permisos.push('parametrizar');
   return permisos;
+}
+
+// Qué puede ver y usar una persona: permisos especiales + módulos tildados en
+// Configuración → Usuarios (columna modulos_permitidos; null = todos) + si es administradora.
+function datosDeAcceso(perfil) {
+  const esAdmin = !!perfil?.es_admin;
+  // Módulos tildados para la persona en Configuración → Usuarios (null = todos).
+  const modulosPermitidos = perfil?.modulos_permitidos ?? null;
+  return {
+    permisos: permisosDe(perfil),
+    modulosPermitidos,
+    esAdmin,
+  };
+}
+
+
+
+// Al abrir el tablero con una sesión ya iniciada, se vuelve a leer el perfil: si lo
+// deshabilitaron o le cambiaron los módulos, se aplica sin esperar a que cierre sesión.
+// Devuelve null si la persona ya no puede entrar.
+export async function refrescarUsuario(usuario) {
+  if (!usuario?.id) return null;
+  try {
+    const filas = await sbGet(`id=eq.${usuario.id}&select=*`);
+    const perfil = filas[0];
+    if (!perfil || perfil.activo === false) return null;
+    const actualizado = { id: perfil.id, nombre: perfil.nombre, ...datosDeAcceso(perfil) };
+    guardarSesion(actualizado);
+    return actualizado;
+  } catch {
+    return usuario; // sin conexión: se mantiene la sesión como estaba
+  }
 }
 
 // Filtra el input para que solo acepte dígitos y máximo 4 caracteres
@@ -198,7 +234,7 @@ function renderIngresarPin(overlay, perfiles, id, nombre, onResolve) {
     const hash   = await hashear(pin);
     const perfil = perfiles.find(p => p.id === id);
     if (perfil && perfil.password_hash === hash) {
-      const usuario = { id, nombre, permisos: permisosDe(perfil), modulosPermitidos: perfil.modulos_permitidos || null };
+      const usuario = { id, nombre, ...datosDeAcceso(perfil) };
       guardarSesion(usuario);
       mostrarAccesoConfirmado(overlay, nombre, usuario, onResolve);
     } else {
@@ -268,7 +304,7 @@ function renderCrearPin(overlay, perfiles, id, nombre, onResolve) {
       await sbPatch(id, { password_hash: hash });
       const perfil = perfiles.find(p => p.id === id);
       if (perfil) perfil.password_hash = hash;
-      const usuario = { id, nombre, permisos: permisosDe(perfil), modulosPermitidos: perfil?.modulos_permitidos || null };
+      const usuario = { id, nombre, ...datosDeAcceso(perfil) };
       guardarSesion(usuario);
       mostrarAccesoConfirmado(overlay, nombre, usuario, onResolve);
     } catch (err) {
@@ -297,6 +333,8 @@ export function mostrarLogin() {
     let perfiles = [];
     try {
       perfiles = await sbGet('order=created_at.asc');
+      // Los deshabilitados desde Configuración no aparecen para ingresar.
+      perfiles = perfiles.filter(p => p.activo !== false);
     } catch (_) {
       perfiles = [];
     }

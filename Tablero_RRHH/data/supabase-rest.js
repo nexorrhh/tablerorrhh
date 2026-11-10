@@ -80,7 +80,7 @@ export const sbDelete = (ruta, prefer)         => escribir('DELETE', ruta, undef
 export const sbUpsert = (ruta, cuerpo)         => escribir('POST', ruta, cuerpo, 'resolution=merge-duplicates,return=minimal');
 
 // Llama a una función de Postgres (RPC). Devuelve lo que devuelve la función.
-export async function sbRpc(nombre, params = {}) {
+export async function sbRpc(nombre, params = {}, { lectura = false } = {}) {
   const r = await fetch(`${BASE}rpc/${nombre}`, {
     method: 'POST',
     headers: { ...HDR, 'Content-Type': 'application/json' },
@@ -89,7 +89,8 @@ export async function sbRpc(nombre, params = {}) {
   if (!r.ok) throw await errorDe(r, `rpc/${nombre}`);
   // Las RPC de este tablero escriben (importar plantel, cargas de Tango/Capataz) y no
   // se sabe qué tablas tocan: se limpia toda la caché para no mostrar datos viejos.
-  invalidarCache();
+  // (lectura: true para RPC que solo leen, ej. listar feriados: no hace falta limpiar nada).
+  if (!lectura) invalidarCache();
   const texto = await r.text();
   return texto ? JSON.parse(texto) : null;
 }

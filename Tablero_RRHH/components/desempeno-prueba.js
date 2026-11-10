@@ -159,7 +159,7 @@ export async function montarEvaluacionPrueba(formEl, persona, ctx) {
         <p class="pres__vacio-small" style="margin-top:var(--espacio-s);color:#2563eb">
           Marcada a mano para período de prueba por cambio de función (PG-6.01) — aunque tenga antigüedad
           real desde ${fmtFecha(persona.fecha_ingreso)}, se evalúa como si fuera nueva en este puesto${fechaReferencia ? ` desde ${fmtFecha(fechaReferencia)}` : ''}.
-          Para sacar esta marca o cargar/corregir la fecha, Desempeño → Parametrización → Excepciones manuales.
+          Para sacar esta marca o cargar/corregir la fecha, Configuración → Desempeño → Excepciones manuales.
         </p>` : ''}
         ${!previa && !forzado && esReingreso(persona, manualSet) ? `
         <p class="pres__vacio-small" style="margin-top:var(--espacio-s);color:#d97706">

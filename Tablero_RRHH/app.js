@@ -10,7 +10,7 @@ import { navegacion }  from './config/navegacion.js';
 
 import { renderizarNavLateral }     from './components/nav-lateral.js';
 import { renderizarHeader }         from './components/header.js';
-import { mostrarLogin }             from './components/login.js';
+import { mostrarLogin, refrescarUsuario } from './components/login.js';
 import { obtenerUsuario, cerrarSesion } from './data/usuario-activo.js';
 import { inicializarTema }          from './data/tema-modo.js';
 import { renderizarPanel }          from './components/panel-inicio.js';
@@ -32,11 +32,21 @@ let SIDEBAR_ITEMS = SIDEBAR_ITEMS_TODOS;
 // módulos únicamente — pensado para gente a la que solo le corresponde ver una parte puntual
 // del Tablero (ej. un encargado que solo debe ver Horas y Presentismo). Sin ese campo cargado
 // (la gran mayoría de los perfiles), ve todos los módulos como siempre.
-function actualizarSidebarPara(usuario) {
+// ¿La persona puede ver este módulo? (módulos tildados en Configuración → Usuarios).
+// El Panel se ve siempre.
+function puedeVerModulo(usuario, id) {
+  if (id === 'panel') return true;
   const permitidos = usuario?.modulosPermitidos;
-  SIDEBAR_ITEMS = (!permitidos || !permitidos.length)
-    ? SIDEBAR_ITEMS_TODOS
-    : SIDEBAR_ITEMS_TODOS.filter(item => permitidos.includes(item.id));
+  return !permitidos || permitidos.includes(id);
+}
+
+// Los módulos con `permisosModulo` (Configuración) se ven si la persona tiene alguno de esos
+// permisos (administrador o "Parametrizar"), sin importar sus módulos tildados.
+function actualizarSidebarPara(usuario) {
+  SIDEBAR_ITEMS = SIDEBAR_ITEMS_TODOS.filter(item => {
+    if (item.permisosModulo) return item.permisosModulo.some(p => usuario?.permisos?.includes(p));
+    return puedeVerModulo(usuario, item.id);
+  });
   return SIDEBAR_ITEMS;
 }
 
@@ -50,7 +60,11 @@ let usuarioActivo = null;
 // (ver campo `permiso` en config/navegacion.js y `permisos` en data/usuario-activo.js).
 function modConPermisos(mod) {
   if (!mod) return mod;
-  const submodulos = (mod.submodulos ?? []).filter(s => !s.permiso || usuarioActivo?.permisos?.includes(s.permiso));
+  // `permiso`: la solapa pide ese permiso. `modulo`: la solapa de Configuración de un módulo
+  // (ej. Vacaciones) solo aparece si la persona puede ver ese módulo.
+  const submodulos = (mod.submodulos ?? []).filter(s =>
+    (!s.permiso || usuarioActivo?.permisos?.includes(s.permiso)) &&
+    (!s.modulo || puedeVerModulo(usuarioActivo, s.modulo)));
   return { ...mod, submodulos };
 }
 
@@ -93,6 +107,20 @@ async function actualizarBadges() {
               + (rPermCom.status === 'fulfilled' ? (rPermCom.value.permisos || []).length : 0);
 
   badges = { ...badges, postulantes: valor(rPost), vencimientos: valor(rContr) + valor(rLic) + nInst + valor(rPagos), permisos: nPerm };
+
+  // Configuración: cuántas cosas quedaron sin parametrizar (puestos, conceptos, evaluadores…),
+  // solo para quien puede parametrizar y solo de las solapas que ve.
+  if (usuarioActivo?.permisos?.includes('parametrizar')) {
+    try {
+      const { calcularPendientes, totalPendientes } = await import('./data/pendientes-parametrizacion.js');
+      badges = { ...badges, configuracion: totalPendientes(await calcularPendientes(solapasConfiguracion())) };
+    } catch (e) { console.warn('Badge de Configuración sin dato:', e.message); }
+  }
+}
+
+// Solapas de Configuración que ve la persona activa (según sus permisos y módulos).
+function solapasConfiguracion() {
+  return (modConPermisos(navegacion.find(n => n.id === 'configuracion'))?.submodulos || []).map(s => s.id);
 }
 
 function refrescarNav() {
@@ -211,6 +239,17 @@ const PANTALLAS = {
   'desem-evaluaciones':      { m: () => import('./components/desempeno-evaluaciones.js'),   f: 'renderizarDesempenoEvaluaciones' },
   'desem-indicadores':       { m: () => import('./components/desempeno-indicadores.js'),    f: 'renderizarDesempenoIndicadores' },
   'desem-parametrizacion':   { m: () => import('./components/desempeno-parametrizacion.js'), f: 'renderizarDesempenoParametrizacion' },
+  'vac-resumen':             { m: () => import('./components/vacaciones-resumen.js'),       f: 'renderizarVacacionesResumen',
+                               // "configuracion" ahora vive en Configuración → Vacaciones (otro módulo).
+                               args: () => [sub => (sub === 'configuracion' ? cambiarModulo('configuracion', 'vacaciones') : cambiarSubmodulo(sub))] },
+  'vac-planificacion':       { m: () => import('./components/vacaciones-planificacion.js'), f: 'renderizarVacacionesPlanificacion' },
+  'vac-cobertura':           { m: () => import('./components/vacaciones-mapa.js'),          f: 'renderizarVacacionesMapa' },
+  'vac-escenarios':          { m: () => import('./components/vacaciones-escenarios.js'),    f: 'renderizarVacacionesEscenarios', args: () => [cambiarSubmodulo] },
+  'vac-saldos':              { m: () => import('./components/vacaciones-saldos.js'),        f: 'renderizarVacacionesSaldos' },
+  'vac-config':              { m: () => import('./components/vacaciones-config.js'),        f: 'renderizarVacacionesConfig' },
+  'cfg-pendientes':          { m: () => import('./components/configuracion-pendientes.js'), f: 'renderizarConfigPendientes',
+                               args: () => [cambiarSubmodulo, solapasConfiguracion(), total => { badges = { ...badges, configuracion: total }; refrescarNav(); }] },
+  'cfg-usuarios':            { m: () => import('./components/configuracion-accesos.js'),   f: 'renderizarConfigUsuarios' },
   'perm-autorizacion':       { m: () => import('./components/permisos-autorizacion.js'),    f: 'renderizarPermisosAutorizacion', args: () => [refrescarBadges] },
   'perm-autorizados':        { m: () => import('./components/permisos-autorizados.js'),     f: 'renderizarPermisosAutorizados' },
   'perm-indicadores':        { m: () => import('./components/permisos-indicadores.js'),     f: 'renderizarPermisosIndicadores' },
@@ -378,6 +417,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Verificar sesión activa; si no hay, mostrar pantalla de login
   usuarioActivo = obtenerUsuario();
+  // Se vuelve a leer el perfil: si lo deshabilitaron o le cambiaron los módulos desde
+  // Configuración, se aplica ya (y si no puede entrar más, vuelve al login).
+  if (usuarioActivo) {
+    usuarioActivo = await refrescarUsuario(usuarioActivo);
+    if (!usuarioActivo) cerrarSesion();
+  }
   if (!usuarioActivo) {
     usuarioActivo = await mostrarLogin();
   }

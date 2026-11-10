@@ -355,7 +355,7 @@ async function renderModoTango(contenedor) {
   cargarYRender();
 }
 
-const GRUPO_LABEL = { quincenal: 'Personal de taller — Quincenales', mensual: 'Personal administrativo — Mensuales', sin_asignar: 'Sin clasificar (puesto sin asignar en Parametrización)' };
+const GRUPO_LABEL = { quincenal: 'Personal de taller — Quincenales', mensual: 'Personal administrativo — Mensuales', sin_asignar: 'Sin clasificar (puesto sin asignar en Configuración → Puestos)' };
 const GRUPO_COLOR = { quincenal: 'var(--color-primario)', mensual: '#0d9488', sin_asignar: '#94a3b8' };
 
 // ── Lógica de armado de las novedades de un día (se reusa tal cual para la vista Semana,

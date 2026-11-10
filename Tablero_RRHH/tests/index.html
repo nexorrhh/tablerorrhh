@@ -14,12 +14,16 @@
   </style>
 </head>
 <body>
-  <h1>Pruebas de cálculos de Horas y Presentismo</h1>
+  <h1>Pruebas de cálculos (Horas y Presentismo, Vacaciones)</h1>
   <p id="resumen">Corriendo…</p>
   <ul id="lista"></ul>
   <script type="module">
-    import { correrCasos } from './casos-presentismo.js';
-    const res = correrCasos();
+    import { casos as casosPresentismo } from './casos-presentismo.js';
+    import { casos as casosVacaciones } from './casos-vacaciones.js';
+    const res = [...casosPresentismo, ...casosVacaciones].map(c => {
+      try { c.fn(); return { nombre: c.nombre, ok: true }; }
+      catch (e) { return { nombre: c.nombre, ok: false, error: e.message }; }
+    });
     const lista = document.getElementById('lista');
     res.forEach(r => {
       const li = document.createElement('li');
