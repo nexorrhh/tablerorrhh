@@ -5,6 +5,7 @@ import {
 } from '../data/vacaciones-reglas.js';
 import { calcularCoberturaDiaria, resumenSemanal, nivelCobertura, metricasEscenario } from '../data/vacaciones-cobertura.js';
 import { vacacionesConfig } from '../config/vacaciones.js';
+import { cruceTango, vacacionesSinPlanificar } from '../data/vacaciones-tango.js';
 
 const R = vacacionesConfig.reglasPorDefecto;
 const N = vacacionesConfig.nivelReglas;
@@ -110,6 +111,30 @@ export const casos = [
     fn() {
       igual(normalizarPuesto('  Recepción  y Despacho '), 'recepcion y despacho', 'normalizado');
       igual(lunesDe('2027-01-07'), '2027-01-04', 'lunes de la semana');
+    },
+  },
+  {
+    nombre: 'Tango: confirma, parcial, no registrado, sin datos y futuro',
+    fn() {
+      const p = { desde: '2026-10-05', hasta: '2026-10-18' }; // 10 días hábiles (lun 5 a vie 16)
+      const meses = new Set(['2026-10']);
+      const todos = new Set(['2026-10-05','2026-10-06','2026-10-07','2026-10-08','2026-10-09','2026-10-12','2026-10-13','2026-10-14','2026-10-15','2026-10-16']);
+      igual(cruceTango(p, todos, new Set(), '2026-11-10', meses).estado, 'ok', 'todos registrados');
+      igual(cruceTango(p, new Set(['2026-10-05']), new Set(), '2026-11-10', meses).estado, 'parcial', 'uno solo');
+      const no = cruceTango(p, new Set(), new Set(), '2026-11-10', meses);
+      igual([no.estado, no.habiles, no.registrados], ['no', 10, 0], 'ninguno');
+      igual(cruceTango(p, new Set(), new Set(), '2026-11-10', new Set()).estado, 'sin-datos', 'mes no importado');
+      igual(cruceTango(p, new Set(), new Set(), '2026-10-01', meses).estado, 'futuro', 'todavía no empezó');
+      // En curso: solo cuenta hasta hoy (mié 7 → 3 días hábiles).
+      igual(cruceTango(p, todos, new Set(), '2026-10-07', meses).habiles, 3, 'en curso');
+    },
+  },
+  {
+    nombre: 'Tango: vacaciones registradas fuera de lo planificado, agrupadas en tramos',
+    fn() {
+      const tango = new Set(['2026-10-05', '2026-10-06', '2026-10-19', '2026-10-20', '2026-10-23', '2026-10-26']);
+      const tramos = vacacionesSinPlanificar(tango, [{ desde: '2026-10-05', hasta: '2026-10-11' }], '2026-10-01', '2026-10-31');
+      igual(tramos.map(t => [t.desde, t.hasta, t.dias]), [['2026-10-19', '2026-10-20', 2], ['2026-10-23', '2026-10-26', 2]], 'tramos');
     },
   },
   {

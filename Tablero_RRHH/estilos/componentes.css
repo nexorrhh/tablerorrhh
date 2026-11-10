@@ -7832,3 +7832,15 @@ html[data-tema="oscuro"] .desem__pendiente-fila:hover { background: rgba(255,255
 .cfg__pend-num--hay { background: var(--color-error); color: #fff; }
 .cfg__pend-lista { margin: 0; padding-left: 18px; font-size: 0.85rem; max-height: 260px; overflow: auto; }
 .cfg__pend-lista li { margin-bottom: 3px; }
+
+/* Vacaciones: cruce con Tango */
+.vac__subtit { margin: 0 0 6px; font-size: 0.88rem; }
+.vac__tango { margin: 4px 0 0; font-size: 0.8rem; font-weight: 600; }
+.vac__tango--ok { color: var(--vac-verde); }
+.vac__tango--parcial { color: var(--vac-amarillo); }
+.vac__tango--no { color: var(--vac-rojo); }
+.vac__tango--sin-datos { color: var(--color-texto-sec); font-weight: 400; }
+.vac-g__barra--tango-ok { opacity: .55; }
+.vac-g__barra--tango-no { outline: 2px dashed var(--vac-rojo); outline-offset: 1px; }
+.vac-g__barra--tango-parcial { outline: 2px dashed var(--vac-amarillo); outline-offset: 1px; }
+.vac-g__barra-muestra.vac-g__barra--tango-ok { opacity: .55; }

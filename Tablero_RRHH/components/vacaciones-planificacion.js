@@ -3,7 +3,8 @@
 // oficial se edita con clic; en un escenario además se pueden arrastrar las barras.
 import { vacacionesConfig } from '../config/vacaciones.js';
 import { escaparHtml as e } from './util.js';
-import { cargarContexto, periodosDelPlan, esActivo, esFirme, saldoPersona, guardarPeriodo } from '../data/vacaciones-datos.js';
+import { cargarContexto, periodosDelPlan, esActivo, esFirme, saldoPersona, guardarPeriodo, cruceTangoDe } from '../data/vacaciones-datos.js';
+import { TEXTO_CRUCE } from '../data/vacaciones-tango.js';
 import {
   estadoVac, htmlBarraFiltros, enlazarBarraFiltros, filtrarEmpleados, cargarConManejo, abrirModalPeriodo,
   coberturaDelPlan, fmtFecha, fmtFechaCorta, hoyISO, ESTADO_TEXTO, EMP_LABEL, exportarExcel, mesTexto,
@@ -37,7 +38,9 @@ export async function renderizarVacacionesPlanificacion(contenedor) {
   function pintar() {
     const est = estadoVac.get();
     const vista = vistaInicial();
-    const inicio = est.ganttInicio && anioVacacionalDe(est.ganttInicio) === est.anio ? est.ganttInicio : inicioPorDefecto(est);
+    // La posición elegida con las flechas se respeta aunque cruce de año vacacional; al cambiar
+    // el año en el filtro se vuelve a la posición por defecto (ver enlazarBarraFiltros).
+    const inicio = est.ganttInicio || inicioPorDefecto(est);
     const fin = sumarDias(inicio, vista.dias - 1);
     const dias = rangoDias(inicio, fin);
     const px = vista.pxDia;
@@ -114,9 +117,12 @@ export async function renderizarVacacionesPlanificacion(contenedor) {
         });
         const icono = hayBloqueantes(alertas) ? '✕ ' : alertas.length ? '⚠ ' : '';
         const vuelve = reincorporacion(p.hasta, ctx.feriados);
-        const tit = `${emp.nombre}\n${fmtFecha(p.desde)} al ${fmtFecha(p.hasta)} · ${dias} días corridos\nVuelve: ${fmtFecha(vuelve)} · ${ESTADO_TEXTO[p.estado]}${alertas.length ? '\n' + alertas.map(a => (a.nivel === 'bloqueante' ? '✕ ' : '⚠ ') + a.mensaje).join('\n') : ''}`;
+        // Períodos ya transcurridos de la planificación oficial: ¿Tango los registró?
+        const cruce = enEscenario ? null : cruceTangoDe(ctx, p);
+        const lineaTango = cruce && cruce.estado !== 'futuro' ? `\n${TEXTO_CRUCE[cruce.estado]}${cruce.habiles ? ` (${cruce.registrados}/${cruce.habiles} días hábiles)` : ''}` : '';
+        const tit = `${emp.nombre}\n${fmtFecha(p.desde)} al ${fmtFecha(p.hasta)} · ${dias} días corridos\nVuelve: ${fmtFecha(vuelve)} · ${ESTADO_TEXTO[p.estado]}${lineaTango}${alertas.length ? '\n' + alertas.map(a => (a.nivel === 'bloqueante' ? '✕ ' : '⚠ ') + a.mensaje).join('\n') : ''}`;
         const texto = ancho >= 90 ? `${icono}${dias}d → ${fmtFechaCorta(vuelve)}` : ancho >= 34 ? `${icono}${dias}d` : icono.trim();
-        return `<button type="button" class="vac-g__barra vac-g__barra--${p.estado} ${esFirme(p) ? '' : 'vac-g__barra--propuesta'} ${enEscenario ? 'vac-g__barra--movible' : ''}"
+        return `<button type="button" class="vac-g__barra vac-g__barra--${p.estado} ${esFirme(p) ? '' : 'vac-g__barra--propuesta'} ${enEscenario ? 'vac-g__barra--movible' : ''} ${cruce && cruce.estado !== 'futuro' ? 'vac-g__barra--tango-' + cruce.estado : ''}"
                   data-id="${p.id}" style="left:${x(ini)}px;width:${ancho}px" title="${e(tit)}" aria-label="${e(tit)}">${texto}</button>`;
       }).join('');
       return `<div class="vac-g__fila" data-clave="${emp.clave}">
@@ -150,6 +156,8 @@ export async function renderizarVacacionesPlanificacion(contenedor) {
           <span class="vac-g__cob-muestra vac-g__cob--verde"></span><span class="vac-g__cob-muestra vac-g__cob--amarillo"></span><span class="vac-g__cob-muestra vac-g__cob--rojo"></span> Cobertura del sector
           <span class="vac-g__cob-muestra vac-g__cob--sin-dato"></span> Sin necesidad mínima cargada
           <span class="vac-g__dia-muestra"></span> Fin de semana / feriado
+          <span class="vac-g__barra-muestra vac-g__barra--tango-ok"></span> Ya tomadas (Tango lo confirma)
+          <span class="vac-g__barra-muestra vac-g__barra--tango-no"></span> Pasaron y Tango no las registra
         </div>
         ${!grupos.length ? '<div class="estado-vacio"><p class="estado-vacio__texto">No hay personas con esos filtros.</p></div>' : `
         <div class="vac-g" style="--ancho-nombre:${ANCHO_NOMBRE}px">

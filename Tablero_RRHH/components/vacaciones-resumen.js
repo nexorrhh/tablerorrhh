@@ -1,7 +1,9 @@
 // Vacaciones → Resumen: tarjetas, próximas salidas, semanas con riesgo (próximas 12) y
 // pendientes de aprobación / datos faltantes.
 import { escaparHtml as e } from './util.js';
-import { cargarContexto, periodosDelPlan, esActivo, saldoPersona } from '../data/vacaciones-datos.js';
+import { cargarContexto, periodosDelPlan, esActivo, saldoPersona, cruceTangoDe, tangoSinPlanificar } from '../data/vacaciones-datos.js';
+import { TEXTO_CRUCE } from '../data/vacaciones-tango.js';
+import { rangoAnioVacacional } from '../data/vacaciones-reglas.js';
 import {
   estadoVac, htmlBarraFiltros, enlazarBarraFiltros, filtrarEmpleados, cargarConManejo, coberturaDelPlan,
   fmtFecha, fmtFechaCorta, fmtNum, hoyISO, EMP_LABEL, ESTADO_TEXTO, abrirModalPeriodo,
@@ -43,6 +45,16 @@ export async function renderizarVacacionesResumen(contenedor, irA) {
     let semanasRiesgo = 0;
     semanas.forEach(l => { if (sectores.some(s => nivelCobertura(sem.get(s.id)?.get(l)?.cobertura, s) === 'rojo')) semanasRiesgo++; });
 
+    // Control con Tango: lo planificado que ya pasó, ¿se tomó? Y lo que Tango registra sin planificar.
+    const [iniAnio] = rangoAnioVacacional(est.anio);
+    const transcurridos = periodosDelPlan(ctx, null)
+      .filter(p => esActivo(p) && p.anio_vacacional === est.anio && claves.has(`${p.empresa}|${p.legajo}`))
+      .map(p => ({ p, c: cruceTangoDe(ctx, p, hoy) }))
+      .filter(x => x.c.estado !== 'futuro');
+    const sinRegistrar = transcurridos.filter(x => x.c.estado === 'no' || x.c.estado === 'parcial');
+    const confirmados = transcurridos.filter(x => x.c.estado === 'ok').length;
+    const sinDatosTango = transcurridos.filter(x => x.c.estado === 'sin-datos').length;
+    const fueraDePlan = tangoSinPlanificar(ctx, emps, iniAnio, hoy);
     const kpi = (num, lbl, sub = '', color = '') => `<div class="pind__kpi"><span class="pind__kpi-num" ${color ? `style="color:${color}"` : ''}>${num}</span><span class="pind__kpi-lbl">${lbl}</span>${sub ? `<span class="pind__kpi-sub">${sub}</span>` : ''}</div>`;
     const nombre = p => ctx.empleadoPor.get(`${p.empresa}|${p.legajo}`)?.nombre || `Legajo ${p.legajo}`;
 
@@ -88,6 +100,26 @@ export async function renderizarVacacionesResumen(contenedor, irA) {
         </div>
 
         <section class="vac__panel">
+          <div class="vac__panel-cab"><h3>Control con Tango</h3>
+            <span class="vac__nota">${confirmados} confirmadas${sinDatosTango ? ` · ${sinDatosTango} sin datos de Tango todavía` : ''}</span></div>
+          <p class="vac__nota">Las vacaciones que ya pasaron se comparan con los días que Tango registró como VACACION. No hace falta marcarlas como tomadas: se confirman solas.</p>
+          <div class="vac__dos">
+            <div>
+              <h4 class="vac__subtit">Planificadas que Tango no registra (${sinRegistrar.length})</h4>
+              ${!sinRegistrar.length ? '<p class="vac__nota">✓ Todo lo planificado que ya pasó figura en Tango (o todavía no hay datos de esos meses).</p>' : `<ul class="vac__lista">${sinRegistrar.map(({ p, c }) => `
+                <li><button type="button" class="vac__lista-btn" data-periodo="${p.id}"><strong>${e(nombre(p))}</strong> · ${fmtFecha(p.desde)} – ${fmtFecha(p.hasta)}
+                  <span class="vac__tango vac__tango--${c.estado}">${TEXTO_CRUCE[c.estado]} (${c.registrados}/${c.habiles})</span></button></li>`).join('')}</ul>`}
+            </div>
+            <div>
+              <h4 class="vac__subtit">En Tango sin planificar (${fueraDePlan.reduce((t, x) => t + x.tramos.length, 0)})</h4>
+              ${!fueraDePlan.length ? '<p class="vac__nota">✓ No hay vacaciones en Tango fuera de la planificación.</p>' : `<ul class="vac__lista">${fueraDePlan.map(({ emp, tramos }) => tramos.map(t => `
+                <li><button type="button" class="vac__lista-btn" data-nuevo="${emp.clave}" data-desde="${t.desde}" title="Cargarlas en la planificación"><strong>${e(emp.nombre)}</strong> · ${fmtFecha(t.desde)}${t.hasta !== t.desde ? ` – ${fmtFecha(t.hasta)}` : ''}
+                  <span class="vac__nota">${t.dias} día${t.dias === 1 ? '' : 's'} hábil${t.dias === 1 ? '' : 'es'}</span></button></li>`).join('')).join('')}</ul>`}
+            </div>
+          </div>
+        </section>
+
+        <section class="vac__panel">
           <div class="vac__panel-cab"><h3>Con saldo y sin vacaciones planificadas (${sinPlan.length})</h3><button type="button" class="vac__link" data-ir="saldos">Ver saldos</button></div>
           ${!sinPlan.length ? '<p class="vac__nota">Todos los que tienen saldo ya tienen fecha.</p>' : `<div class="vac__chips">${sinPlan.slice(0, 60).map(({ x, s }) =>
             `<button type="button" class="vac__chip-btn" data-nuevo="${x.clave}" title="Planificar">${e(x.nombre)} <small>${s.saldo} d · ${EMP_LABEL[x.empresa] || x.empresa}</small></button>`).join('')}${sinPlan.length > 60 ? `<span class="vac__nota">y ${sinPlan.length - 60} más…</span>` : ''}</div>`}
@@ -101,7 +133,7 @@ export async function renderizarVacacionesResumen(contenedor, irA) {
       abrirModalPeriodo({ ctx, periodo: p, emp: ctx.empleadoPor.get(`${p.empresa}|${p.legajo}`), alGuardar: recargar });
     }));
     contenedor.querySelectorAll('[data-nuevo]').forEach(b => b.addEventListener('click', () =>
-      abrirModalPeriodo({ ctx, emp: ctx.empleadoPor.get(b.dataset.nuevo), escenarioId: escId, alGuardar: recargar })));
+      abrirModalPeriodo({ ctx, emp: ctx.empleadoPor.get(b.dataset.nuevo), escenarioId: escId, desde: b.dataset.desde || null, alGuardar: recargar })));
   }
 
   pintar();

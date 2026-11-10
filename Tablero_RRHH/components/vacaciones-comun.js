@@ -5,7 +5,7 @@ import { vacacionesConfig } from '../config/vacaciones.js';
 import { escaparHtml as e, htmlError } from './util.js';
 import { cerrarConAnimacion } from './modal-animado.js';
 import {
-  ModuloNoInstalado, periodosDelPlan, esActivo, saldoPersona, requeridosDe, guardarPeriodo, borrarPeriodo,
+  ModuloNoInstalado, periodosDelPlan, esActivo, saldoPersona, requeridosDe, guardarPeriodo, borrarPeriodo, cruceTangoDe,
   usuarioActual, leerAuditoria,
 } from '../data/vacaciones-datos.js';
 import {
@@ -13,6 +13,7 @@ import {
   textoAnioVacacional, aFecha, lunesDe,
 } from '../data/vacaciones-reglas.js';
 import { calcularCoberturaDiaria, nivelCobertura } from '../data/vacaciones-cobertura.js';
+import { TEXTO_CRUCE } from '../data/vacaciones-tango.js';
 
 const CFG = vacacionesConfig;
 export const ESTADO_TEXTO = Object.fromEntries(CFG.estados.map(s => [s.id, s.texto]));
@@ -134,7 +135,7 @@ export function enlazarBarraFiltros(raiz, alCambiar) {
       if (clave === 'anio') valor = Number(valor);
       if (clave === 'escenarioId') valor = valor ? Number(valor) : null;
       const cambios = { [clave]: valor };
-      if (clave === 'anio') cambios.escenarioId = null; // los escenarios son por año
+      if (clave === 'anio') { cambios.escenarioId = null; cambios.ganttInicio = null; } // escenarios y vista del Gantt son por año
       estadoVac.set(cambios);
       alCambiar(clave);
     });
@@ -189,10 +190,11 @@ export function abrirModalPeriodo({ ctx, emp = null, periodo = null, escenarioId
         <div><label class="venc__label" for="vac-mp-dias">Días corridos</label><input class="venc__input" type="number" min="1" max="60" id="vac-mp-dias"></div>
       </div>
       <p class="vac__nota" id="vac-mp-calc"></p>
+      <p class="vac__tango" id="vac-mp-tango" hidden></p>
       <div class="vac__fila2">
         <div><label class="venc__label" for="vac-mp-estado">Estado</label>
           <select class="venc__input" id="vac-mp-estado">
-            ${CFG.estados.map(s => `<option value="${s.id}" ${p.estado === s.id ? 'selected' : ''}>${s.texto}</option>`).join('')}
+            ${CFG.estados.filter(s => s.id !== 'gozado' || p.estado === 'gozado').map(s => `<option value="${s.id}" ${p.estado === s.id ? 'selected' : ''}>${s.texto}</option>`).join('')}
           </select></div>
         <div><label class="venc__label" for="vac-mp-notif">Notificado el</label><input class="venc__input" type="date" id="vac-mp-notif" value="${p.notificado_en || ''}"></div>
         <div><label class="venc__label" for="vac-mp-const">Constancia</label><input class="venc__input" id="vac-mp-const" placeholder="Ej. nota firmada, mail" value="${e(p.constancia)}"></div>
@@ -251,6 +253,15 @@ export function abrirModalPeriodo({ ctx, emp = null, periodo = null, escenarioId
 
     const anio = ok ? anioVacacionalDe(desdeV) : anioVacacionalDe(hoyISO());
     const s = saldoPersona(ctx, x, anio, p.escenario_id, p.id);
+    // Si ya pasó (o está en curso): ¿Tango lo registró como vacaciones? (reemplaza a "Gozado")
+    const zonaTango = $('#vac-mp-tango');
+    const cruce = ok ? cruceTangoDe(ctx, { empresa: x.empresa, legajo: x.legajo, desde: desdeV, hasta: hastaV }) : null;
+    zonaTango.hidden = !cruce || cruce.estado === 'futuro';
+    if (cruce && cruce.estado !== 'futuro') {
+      zonaTango.className = `vac__tango vac__tango--${cruce.estado}`;
+      zonaTango.textContent = TEXTO_CRUCE[cruce.estado] + (cruce.habiles ? ` (${cruce.registrados} de ${cruce.habiles} días hábiles registrados como vacaciones)` : '')
+        + (cruce.faltan?.length && cruce.faltan.length <= 8 ? ` · faltan: ${cruce.faltan.map(fmtFechaCorta).join(', ')}` : '');
+    }
     zonaSal.innerHTML = `Año ${textoAnioVacacional(anio)}: corresponden <strong>${fmtNum(s.corresponde)}</strong>
       (${s.origen === 'rrhh' ? 'informado por RRHH' : 'calculado: ' + e(s.detalleCalculo)}${s.ajustes ? `, ajustes ${s.ajustes > 0 ? '+' : ''}${s.ajustes}` : ''})
       · comprometidos en otros períodos <strong>${s.comprometido}</strong>

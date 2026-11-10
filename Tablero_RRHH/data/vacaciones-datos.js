@@ -2,11 +2,12 @@
 // pantallas (nómina, sectores, períodos, saldos, feriados, competencias) a partir de las
 // tablas existentes + las vac_ (sql/vacaciones.sql). No duplica la nómina: los empleados
 // salen siempre de `empleados`.
-import { sbGet, sbTraerTodo, sbPost, sbPatch, sbDelete, sbRpc, invalidarCache } from './supabase-rest.js';
+import { sbGet, sbTraerTodo, sbTraerTodoCache, sbPost, sbPatch, sbDelete, sbRpc, invalidarCache } from './supabase-rest.js';
 import { obtenerUsuario } from './usuario-activo.js';
 import { vacacionesConfig } from '../config/vacaciones.js';
 import { normalizarPuesto, diasCorresponden, diasCorridos, rangoAnioVacacional } from './vacaciones-reglas.js';
 import { clavePersona } from './vacaciones-cobertura.js';
+import { cruceTango, vacacionesSinPlanificar } from './vacaciones-tango.js';
 
 export const usuarioActual = () => obtenerUsuario()?.nombre || 'desconocido';
 
@@ -31,7 +32,7 @@ async function opcional(promesa, que) {
 export async function cargarContexto() {
   const [
     empleados, puestosCfg, sectores, mapeo, extras, periodos, escenarios, saldos, demanda, reglasV,
-    feriados, poliPersonas, poliDetalle, poliPuestos, poliNiveles, vacTango,
+    feriados, poliPersonas, poliDetalle, poliPuestos, poliNiveles, vacTango, mesesTango,
   ] = await Promise.all([
     sbTraerTodo('empleados?activo=eq.true&select=legajo,empresa,apellido_y_nombre,desc_puesto,fecha_ingreso&order=apellido_y_nombre.asc,id.asc'),
     opcional(sbTraerTodo('rrhh_puestos_config?select=desc_puesto,tipo&order=desc_puesto.asc'), 'clasificación de puestos'),
@@ -49,11 +50,14 @@ export async function cargarContexto() {
     opcional(sbTraerTodo('produccion_puestos_polivalencia?select=id,nombre&order=id.asc'), 'polivalencia'),
     opcional(sbTraerTodo('produccion_niveles_polivalencia?select=id,nombre,orden&order=orden.asc'), 'polivalencia'),
     opcional(sbTraerTodo('rrhh_tardanzas_salidas?codigo_justificacion=eq.VACACION&select=legajo,empresa,fecha&order=id.asc'), 'vacaciones de Tango'),
+    // Qué meses de Tango ya están importados (por empresa): sin eso no se puede afirmar que
+    // alguien "no se tomó" las vacaciones, solo que todavía no hay datos.
+    opcional(sbTraerTodoCache('rrhh_horas_mensual?select=periodo,empresa&order=id.asc'), 'meses importados de Tango'),
   ]);
   return armarContexto({
     empleados, puestosCfg: puestosCfg || [], sectores, mapeo, extras, periodos, escenarios, saldos, demanda, reglasV,
     feriados: feriados || [], poliPersonas: poliPersonas || [], poliDetalle: poliDetalle || [],
-    poliPuestos: poliPuestos || [], poliNiveles: poliNiveles || [], vacTango: vacTango || [],
+    poliPuestos: poliPuestos || [], poliNiveles: poliNiveles || [], vacTango: vacTango || [], mesesTango: mesesTango || [],
   });
 }
 
@@ -135,6 +139,7 @@ function armarContexto(d) {
     feriados: new Set(d.feriados.map(f => f.fecha)), feriadosLista: d.feriados,
     competencias, hayPolivalencia: d.poliDetalle.length > 0,
     vacTango,
+    mesesTango: d.mesesTango.reduce((m, r) => { if (!m.has(r.empresa)) m.set(r.empresa, new Set()); m.get(r.empresa).add(String(r.periodo).slice(0, 7)); return m; }, new Map()),
   };
 }
 
@@ -268,3 +273,19 @@ export const leerAuditoria = (tabla, id) =>
   sbGet(`vac_auditoria?tabla=eq.${tabla}&registro_id=eq.${id}&select=accion,usuario,fecha,antes,despues&order=fecha.desc&limit=30`);
 
 export { invalidarCache };
+
+// ── Cruce con Tango (reemplaza al estado manual "Gozado") ───────────────────
+export function cruceTangoDe(ctx, p, hoy = new Date().toISOString().slice(0, 10)) {
+  const fechas = new Set(ctx.vacTango.get(`${p.empresa}|${p.legajo}`) || []);
+  return cruceTango(p, fechas, ctx.feriados, hoy, ctx.mesesTango.get(p.empresa) || new Set());
+}
+
+// Vacaciones que Tango registra y no están en la planificación oficial, por persona.
+export function tangoSinPlanificar(ctx, empleados, desde, hasta) {
+  const oficial = periodosDelPlan(ctx, null).filter(esActivo);
+  return empleados.map(emp => ({
+    emp,
+    tramos: vacacionesSinPlanificar(new Set(ctx.vacTango.get(emp.clave) || []),
+      oficial.filter(p => p.legajo === emp.legajo && p.empresa === emp.empresa), desde, hasta, ctx.feriados),
+  })).filter(x => x.tramos.length);
+}
