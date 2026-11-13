@@ -43,7 +43,9 @@ function normalizarHeader(s) {
 
 // Parsea la hoja "Horas no trabajadas" del reporte Extenso (Tarde/Temprano por día y legajo).
 // Si el archivo subido es el formato viejo (sin esa hoja), devuelve [] sin romper nada más.
-function parsearTardanzas(wb) {
+// `aMinutos`: factor para llevar el valor de la hoja a minutos (1 en el export viejo, que ya
+// venía en minutos; 60 en el de nov-2026, que viene en horas decimales).
+function parsearTardanzas(wb, aMinutos = 1) {
   const nombreHoja = wb.SheetNames.find(n => n.toLowerCase() === 'horas no trabajadas');
   if (!nombreHoja) return [];
 
@@ -89,9 +91,11 @@ function parsearTardanzas(wb) {
         compensable:  C.compens >= 0 ? String(f[C.compens]).trim() === 'S' : null,
       });
     }
-    acumulado.get(key).minutos += (+f[C.minutos] || 0);
+    acumulado.get(key).minutos += (+String(f[C.minutos]).replace(',', '.') || 0) * aMinutos;
   }
-  return [...acumulado.values()];
+  const lista = [...acumulado.values()];
+  lista.forEach(e => { e.minutos = Math.round(e.minutos); });
+  return lista;
 }
 
 // Reconoce si el workbook subido es un export de Tango o de Capataz, para poder tener una
@@ -124,7 +128,10 @@ function detectarTipoArchivo(wb) {
 // legajo" no se puede resolver de forma confiable mirando solo el número — hay que preguntarle
 // al archivo mismo, que es un export de una sola empresa por vez.
 function empresaDelArchivo(wb) {
-  const ws = wb.Sheets['Datos de la Empresa'];
+  // Tango cambió el nombre de la hoja de "Datos de la Empresa" a "Datos de la empresa" en la
+  // actualización de nov-2026: se busca sin importar mayúsculas.
+  const nombreHoja = wb.SheetNames.find(n => normalizarHeader(n) === 'datos de la empresa');
+  const ws = nombreHoja && wb.Sheets[nombreHoja];
   if (!ws) return null;
   const filas = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
   // El export nuevo de Tango duplica la fila de encabezado (una versión snake_case sin
@@ -167,8 +174,23 @@ function parsearExcel(wb) {
   // (1/60 si es la variante en minutos, 1 si ya viene en horas). A la hora de leer cada fila,
   // valorCol usa la primera variante que tenga valor no vacío — así funciona con cualquiera
   // de los dos formatos sin tener que adivinar cuál es "el bueno" de antemano.
+  // Desde la actualización de Tango de nov-2026 las columnas "Horas X" traen HORAS decimales
+  // (9, 0.5167) y no minutos (540, 31) como antes, con el mismo nombre de columna. Como el
+  // encabezado no alcanza para distinguirlas, se mira el valor: una jornada esperada (HSNOR)
+  // nunca supera 24 h, así que si el máximo es ≤ 24 la columna está en horas.
+  const MIN = 'variante-minutos';
+  const factorMin = (() => {
+    const iEsp = col('Horas esperadas diurna'), iTipo = col('Código de tipo hora');
+    if (iEsp === -1) return 1 / 60;
+    let max = 0;
+    for (let i = 1; i < filas.length; i++) {
+      if (iTipo !== -1 && String(filas[i][iTipo]).trim() !== 'HSNOR') continue;
+      max = Math.max(max, +filas[i][iEsp] || 0);
+    }
+    return max > 0 && max <= 24 ? 1 : 1 / 60;
+  })();
   const colConFactor = (...pares) => pares
-    .map(([nombre, factor]) => ({ idx: col(nombre), factor }))
+    .map(([nombre, factor]) => ({ idx: col(nombre), factor: factor === MIN ? factorMin : factor }))
     .filter(c => c.idx !== -1);
   const colTodas = (...nombresEnHoras) => colConFactor(...nombresEnHoras.map(n => [n, 1]));
   // Para columnas sin variantes (nunca duplicadas) — nombre exacto, error si falta.
@@ -195,16 +217,17 @@ function parsearExcel(wb) {
     dep:         col('Descripción de departamento'),
     fecha:       col('Fecha del parte'),
     tipoHora:    col('Código de tipo hora'),
-    espDiur:     colConFactor(['Horas esperadas diurna', 1 / 60], ['Hs. esperadas diurna', 1]),
-    espNoct:     colConFactor(['Horas esperadas nocturna', 1 / 60], ['Hs. esperadas nocturna', 1]),
-    trabDiur:    colConFactor(['Horas trabajadas diurna', 1 / 60], ['Hs. trabajadas diurna', 1]),
-    trabNoct:    colConFactor(['Horas trabajadas nocturna', 1 / 60], ['Hs. trabajadas nocturna', 1]),
-    justDiur:    colConFactor(['Horas no trab justif diurna', 1 / 60], ['Hs. no trabajadas justificadas diurna', 1], ['Hs. no trab justif diurna', 1]),
-    justNoct:    colConFactor(['Horas no trab justif nocturna', 1 / 60], ['Hs. no trabajadas justificadas nocturna', 1], ['Hs. no trab justif nocturna', 1]),
-    noJustDiur:  colConFactor(['Horas no trab no justif diurna', 1 / 60], ['Hs. no trabajadas no justificadas diurna', 1], ['Hs. no trab no justif diurna', 1]),
-    noJustNoct:  colConFactor(['Horas no trab no justif noctur', 1 / 60], ['Hs. no trabajadas no justificadas nocturna', 1], ['Hs. no trab no justif noctur', 1]),
-    realDiur:    colConFactor(['Horas reales diurna', 1 / 60], ['Hs. reales diurna', 1]),
-    realNoct:    colConFactor(['Horas reales nocturna', 1 / 60], ['Hs. reales nocturna', 1]),
+    espDiur:     colConFactor(['Horas esperadas diurna', MIN], ['Hs. esperadas diurna', 1]),
+    espNoct:     colConFactor(['Horas esperadas nocturna', MIN], ['Hs. esperadas nocturna', 1]),
+    trabDiur:    colConFactor(['Horas trabajadas diurna', MIN], ['Hs. trabajadas diurna', 1]),
+    trabNoct:    colConFactor(['Horas trabajadas nocturna', MIN], ['Hs. trabajadas nocturna', 1]),
+    // "Horas no trabajadas (no) justificadas diurnas/nocturnas" (en plural) es el nombre del export nov-2026.
+    justDiur:    colConFactor(['Horas no trab justif diurna', MIN], ['Horas no trabajadas justificadas diurnas', MIN], ['Hs. no trabajadas justificadas diurna', 1], ['Hs. no trab justif diurna', 1]),
+    justNoct:    colConFactor(['Horas no trab justif nocturna', MIN], ['Horas no trabajadas justificadas nocturnas', MIN], ['Hs. no trabajadas justificadas nocturna', 1], ['Hs. no trab justif nocturna', 1]),
+    noJustDiur:  colConFactor(['Horas no trab no justif diurna', MIN], ['Horas no trabajadas no justificadas diurnas', MIN], ['Hs. no trabajadas no justificadas diurna', 1], ['Hs. no trab no justif diurna', 1]),
+    noJustNoct:  colConFactor(['Horas no trab no justif noctur', MIN], ['Horas no trabajadas no justificadas nocturnas', MIN], ['Hs. no trabajadas no justificadas nocturna', 1], ['Hs. no trab no justif noctur', 1]),
+    realDiur:    colConFactor(['Horas reales diurna', MIN], ['Hs. reales diurna', 1]),
+    realNoct:    colConFactor(['Horas reales nocturna', MIN], ['Hs. reales nocturna', 1]),
     descTipo:    col('Descripción de tipo hora'), // opcional — para mostrar motivo de justificación
   };
 
@@ -218,7 +241,9 @@ function parsearExcel(wb) {
   // Eventos de "Horas no trabajadas" (tardanzas, salidas anticipadas, ausencias) — se
   // parsean ANTES del loop principal porque vacaciones y viaje laboral necesitan
   // reclasificar filas de "Detalle de horas" del mismo archivo (ver más abajo).
-  const eventos = parsearTardanzas(wb);
+  // Misma unidad que el detalle: si el detalle viene en horas, "Horas no trabajadas" también
+  // (ej. '0.30' = 18 min, '9.00' = jornada completa) y se pasa a minutos, que es lo que se guarda.
+  const eventos = parsearTardanzas(wb, factorMin === 1 ? 60 : 1);
   // VACACION: no es ausentismo — es un día sin jornada programada (como un franco), así
   // que se le reduce la hora esperada a 0 en vez de contarla como ausencia (ni justificada
   // ni no justificada). Tango además suele dejar estos días con 0h esperadas y todo el
