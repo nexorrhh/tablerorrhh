@@ -150,9 +150,22 @@ export const esActivo = p => ACTIVOS.has(p.estado);
 export const esFirme = p => vacacionesConfig.estadosFirmes.includes(p.estado);
 
 // Períodos de un plan: escenarioId null = oficial.
+// La planificación oficial es lo aprobado; un escenario es una propuesta que se arma ENCIMA
+// de lo oficial. Por eso el plan de un escenario = sus propios períodos + los períodos firmes
+// de la oficial del mismo año (aprobados, notificados, gozados), que se ven pero se editan en
+// la oficial. Si el escenario tiene una copia idéntica de un período oficial, cuenta una vez.
 export function periodosDelPlan(ctx, escenarioId = null) {
-  return ctx.periodos.filter(p => (p.escenario_id ?? null) === (escenarioId ?? null));
+  if (escenarioId == null) return ctx.periodos.filter(p => p.escenario_id == null);
+  const anio = ctx.escenarios.find(s => s.id === escenarioId)?.anio_vacacional;
+  const oficiales = ctx.periodos.filter(p => p.escenario_id == null && esFirme(p) && (anio == null || p.anio_vacacional === anio));
+  const clave = p => `${p.empresa}|${p.legajo}|${p.desde}|${p.hasta}`;
+  const yaOficial = new Set(oficiales.map(clave));
+  const propios = ctx.periodos.filter(p => p.escenario_id === escenarioId && !yaOficial.has(clave(p)));
+  return [...oficiales, ...propios];
 }
+
+// Un período de la oficial que se muestra dentro de un escenario (no se arrastra desde ahí).
+export const esDeLaOficial = p => p.escenario_id == null;
 
 export function requeridosDe(ctx) {
   return (sectorId, lunes) => {
@@ -167,10 +180,15 @@ export function requeridosDe(ctx) {
 export function saldoPersona(ctx, emp, anio, escenarioId = null, excluirId = null) {
   const propios = ctx.saldos.filter(s => s.legajo === emp.legajo && s.empresa === emp.empresa && s.anio_vacacional === anio);
   const rrhh = propios.find(s => s.origen === 'rrhh');
-  const ajustes = propios.filter(s => s.origen === 'ajuste').reduce((t, s) => t + Number(s.dias_corresponden), 0);
+  const sumar = filas => filas.reduce((t, s) => t + Number(s.dias_corresponden), 0);
+  const esPendiente = s => s.origen === 'ajuste' && s.motivo === vacacionesConfig.motivoPendientes;
+  const pendientes = sumar(propios.filter(esPendiente));
+  const ajustes = sumar(propios.filter(s => s.origen === 'ajuste' && !esPendiente(s)));
   const calc = diasCorresponden(emp.fecha_ingreso, anio, ctx.reglas, ctx.feriados);
-  const base = rrhh ? Number(rrhh.dias_corresponden) : calc.dias;
-  const corresponde = base == null ? null : base + ajustes;
+  // Base = lo que corresponde por ley (antigüedad). El dato de RRHH es el del año en curso y
+  // queda como control (`difiere`); solo se usa si no hay fecha de ingreso para calcular.
+  const base = calc.dias != null ? calc.dias : rrhh ? Number(rrhh.dias_corresponden) : null;
+  const corresponde = base == null ? null : base + pendientes + ajustes;
   const comprometido = periodosDelPlan(ctx, escenarioId)
     .filter(p => p.legajo === emp.legajo && p.empresa === emp.empresa && p.anio_vacacional === anio && esActivo(p) && p.id !== excluirId)
     .reduce((t, p) => t + diasCorridos(p.desde, p.hasta), 0);
@@ -178,7 +196,8 @@ export function saldoPersona(ctx, emp, anio, escenarioId = null, excluirId = nul
   const tango = (ctx.vacTango.get(emp.clave) || []).filter(f => f >= ini && f <= fin).length;
   return {
     calculado: calc.dias, detalleCalculo: calc.detalle, antiguedad: calc.antiguedad,
-    rrhh: rrhh ? Number(rrhh.dias_corresponden) : null, ajustes, corresponde, origen: rrhh ? 'rrhh' : 'calculado',
+    rrhh: rrhh ? Number(rrhh.dias_corresponden) : null, base, pendientes, ajustes, corresponde,
+    origen: calc.dias != null ? 'ley' : rrhh ? 'rrhh' : 'sin-dato',
     comprometido, saldo: corresponde == null ? null : corresponde - comprometido, tangoDiasHabiles: tango,
     difiere: rrhh != null && calc.dias != null && Number(rrhh.dias_corresponden) !== calc.dias,
   };
@@ -186,10 +205,21 @@ export function saldoPersona(ctx, emp, anio, escenarioId = null, excluirId = nul
 
 // ── Escrituras ──────────────────────────────────────────────────────────────
 
+// Estados que puede tener un período en la planificación oficial: lo firme y su historial.
+export const ESTADOS_OFICIAL = [...vacacionesConfig.estadosFirmes, 'rechazado', 'cancelado'];
+
+// Regla: la oficial solo tiene lo aprobado. Un período de un escenario que pasa a un estado
+// firme (aprobado, notificado, gozado) se MUEVE a la oficial; en la oficial no se guardan
+// borradores ni propuestas (esas van en un escenario, para que el directorio las apruebe).
 export async function guardarPeriodo(p) {
+  const pasaAOficial = esFirme(p);
+  if ((p.escenario_id ?? null) == null && !ESTADOS_OFICIAL.includes(p.estado)) {
+    throw new Error('La planificación oficial solo tiene vacaciones aprobadas. Cargá los borradores y propuestas en un escenario.');
+  }
+  if (pasaAOficial && !p.aprobado_por) { p.aprobado_por = usuarioActual(); p.aprobado_en = new Date().toISOString(); }
   const fila = {
     legajo: p.legajo, empresa: p.empresa, anio_vacacional: p.anio_vacacional,
-    escenario_id: p.escenario_id ?? null, desde: p.desde, hasta: p.hasta, estado: p.estado,
+    escenario_id: pasaAOficial ? null : (p.escenario_id ?? null), desde: p.desde, hasta: p.hasta, estado: p.estado,
     notificado_en: p.notificado_en || null, constancia: p.constancia || null, observaciones: p.observaciones || null,
     alertas_aceptadas: p.alertas_aceptadas?.length ? p.alertas_aceptadas : null,
     aprobado_por: p.aprobado_por ?? null, aprobado_en: p.aprobado_en ?? null,
@@ -209,7 +239,8 @@ export async function crearEscenario({ nombre, descripcion, anio, copiarOficial,
   const [esc] = await sbPost('vac_escenarios', { nombre, descripcion: descripcion || null, anio_vacacional: anio, modificado_por: usuarioActual() }, 'return=representation');
   if (copiarOficial) {
     const filas = periodosDelPlan(ctx, null)
-      .filter(p => p.anio_vacacional === anio && esActivo(p))
+      // Lo firme de la oficial ya se ve en todo escenario (ver periodosDelPlan): no se copia.
+      .filter(p => p.anio_vacacional === anio && esActivo(p) && !esFirme(p))
       .map(p => ({
         legajo: p.legajo, empresa: p.empresa, anio_vacacional: p.anio_vacacional, escenario_id: esc.id,
         desde: p.desde, hasta: p.hasta, estado: p.estado, observaciones: p.observaciones,

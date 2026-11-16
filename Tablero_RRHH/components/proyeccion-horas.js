@@ -79,8 +79,12 @@ export async function renderizarProyeccionHoras(contenedor) {
       };
     });
 
+    // Un escenario se arma encima de lo aprobado: incluye los períodos firmes de la oficial
+    // (las fechas repetidas no duplican: diasDeVacacionesPorPersona usa un conjunto de días).
+    const firmes = new Set(vacacionesConfig.estadosFirmes);
     const periodosPlan = !planes || !ui.plan ? []
-      : planes.periodos.filter(p => (p.escenario_id == null ? 'oficial' : String(p.escenario_id)) === ui.plan);
+      : planes.periodos.filter(p => ui.plan === 'oficial' ? p.escenario_id == null
+        : String(p.escenario_id) === ui.plan || (p.escenario_id == null && firmes.has(p.estado)));
     const diasVac = diasDeVacacionesPorPersona(periodosPlan);
     const conVac = ui.plan !== '';
 

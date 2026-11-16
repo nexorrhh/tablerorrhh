@@ -8,6 +8,7 @@ import { TEXTO_CRUCE } from '../data/vacaciones-tango.js';
 import {
   estadoVac, htmlBarraFiltros, enlazarBarraFiltros, filtrarEmpleados, cargarConManejo, abrirModalPeriodo,
   coberturaDelPlan, fmtFecha, fmtFechaCorta, hoyISO, ESTADO_TEXTO, EMP_LABEL, exportarExcel, mesTexto,
+  textoDesgloseSaldo, estadoSaldo,
 } from './vacaciones-comun.js';
 import {
   sumarDias, difDias, diasCorridos, reincorporacion, esHabil, rangoDias, lunesDe, anioVacacionalDe,
@@ -118,15 +119,22 @@ export async function renderizarVacacionesPlanificacion(contenedor) {
         const icono = hayBloqueantes(alertas) ? '✕ ' : alertas.length ? '⚠ ' : '';
         const vuelve = reincorporacion(p.hasta, ctx.feriados);
         // Períodos ya transcurridos de la planificación oficial: ¿Tango los registró?
-        const cruce = enEscenario ? null : cruceTangoDe(ctx, p);
+        const cruce = p.escenario_id != null ? null : cruceTangoDe(ctx, p);
         const lineaTango = cruce && cruce.estado !== 'futuro' ? `\n${TEXTO_CRUCE[cruce.estado]}${cruce.habiles ? ` (${cruce.registrados}/${cruce.habiles} días hábiles)` : ''}` : '';
-        const tit = `${emp.nombre}\n${fmtFecha(p.desde)} al ${fmtFecha(p.hasta)} · ${dias} días corridos\nVuelve: ${fmtFecha(vuelve)} · ${ESTADO_TEXTO[p.estado]}${lineaTango}${alertas.length ? '\n' + alertas.map(a => (a.nivel === 'bloqueante' ? '✕ ' : '⚠ ') + a.mensaje).join('\n') : ''}`;
+        const tit = `${emp.nombre}${enEscenario && p.escenario_id == null ? ' · planificación oficial (aprobado)' : ''}\n${fmtFecha(p.desde)} al ${fmtFecha(p.hasta)} · ${dias} días corridos\nVuelve: ${fmtFecha(vuelve)} · ${ESTADO_TEXTO[p.estado]}${lineaTango}${alertas.length ? '\n' + alertas.map(a => (a.nivel === 'bloqueante' ? '✕ ' : '⚠ ') + a.mensaje).join('\n') : ''}`;
         const texto = ancho >= 90 ? `${icono}${dias}d → ${fmtFechaCorta(vuelve)}` : ancho >= 34 ? `${icono}${dias}d` : icono.trim();
-        return `<button type="button" class="vac-g__barra vac-g__barra--${p.estado} ${esFirme(p) ? '' : 'vac-g__barra--propuesta'} ${enEscenario ? 'vac-g__barra--movible' : ''} ${cruce && cruce.estado !== 'futuro' ? 'vac-g__barra--tango-' + cruce.estado : ''}"
+        return `<button type="button" class="vac-g__barra vac-g__barra--${p.estado} ${esFirme(p) ? '' : 'vac-g__barra--propuesta'} ${enEscenario && p.escenario_id != null ? 'vac-g__barra--movible' : ''} ${cruce && cruce.estado !== 'futuro' ? 'vac-g__barra--tango-' + cruce.estado : ''}"
                   data-id="${p.id}" style="left:${x(ini)}px;width:${ancho}px" title="${e(tit)}" aria-label="${e(tit)}">${texto}</button>`;
       }).join('');
+      // Días del año vacacional que se está viendo: cuánto le corresponde y cuánto lleva
+      // planificado en este plan (borradores incluidos).
+      const sal = saldoPersona(ctx, emp, est.anio, escId);
+      const ind = estadoSaldo(sal);
+      const titSaldo = `${emp.nombre} · ${emp.puesto}\nAño ${textoAnioVacacional(est.anio)}: corresponden ${sal.corresponde ?? '—'} = ${textoDesgloseSaldo(sal)}`
+        + `\nPlanificados ${sal.comprometido} en este plan (incluye borradores)`
+        + (sal.corresponde == null ? '' : sal.corresponde > sal.comprometido ? `\nFaltan planificar ${sal.corresponde - sal.comprometido}` : sal.corresponde < sal.comprometido ? `\nExcede en ${sal.comprometido - sal.corresponde}` : '\nCompleto');
       return `<div class="vac-g__fila" data-clave="${emp.clave}">
-          <div class="vac-g__nombre" title="${e(emp.nombre)} · ${e(emp.puesto)}"><span class="vac-g__persona">${e(emp.nombre)}</span><span class="vac-g__puesto">${EMP_LABEL[emp.empresa] || emp.empresa} · ${e(emp.puesto)}</span></div>
+          <div class="vac-g__nombre" title="${e(titSaldo)}"><span class="vac-g__persona">${e(emp.nombre)}</span><span class="vac-g__sub"><span class="vac-g__puesto">${EMP_LABEL[emp.empresa] || emp.empresa} · ${e(emp.puesto)}</span><span class="vac-g__saldo vac-g__saldo--${ind.clase}">${e(ind.texto)}</span></span></div>
           <div class="vac-g__linea vac-g__linea--persona" style="width:${ancho}px">${barras}</div>
         </div>`;
     };
@@ -149,7 +157,7 @@ export async function renderizarVacacionesPlanificacion(contenedor) {
           <button type="button" class="venc__btn-sec" id="vac-g-excel">⬇ Excel</button>
           <button type="button" class="venc__btn-pri" id="vac-g-nuevo">+ Nuevo período</button>
         </div>
-        ${enEscenario ? `<div class="vac__banner">Estás editando el escenario <strong>${e(escenario?.nombre || '')}</strong>: los cambios no tocan la planificación oficial. Podés arrastrar las barras para mover fechas.</div>` : ''}
+        ${enEscenario ? `<div class="vac__banner">Estás editando el escenario <strong>${e(escenario?.nombre || '')}</strong>: los cambios no tocan la planificación oficial. Podés arrastrar las barras para mover fechas. Las vacaciones ya aprobadas (de la oficial) también se ven acá; al aprobar un período, pasa a la oficial.</div>` : ''}
         <div class="vac__leyenda">
           <span class="vac-g__barra-muestra vac-g__barra--aprobado"></span> Aprobado / notificado
           <span class="vac-g__barra-muestra vac-g__barra--propuesto vac-g__barra--propuesta"></span> Propuesto / borrador
@@ -206,7 +214,8 @@ export async function renderizarVacacionesPlanificacion(contenedor) {
   function enlazarBarra(barra, { px, enEscenario, escId }) {
     const periodo = ctx.periodos.find(p => String(p.id) === barra.dataset.id);
     const abrir = () => abrirModalPeriodo({ ctx, periodo, emp: ctx.empleadoPor.get(`${periodo.empresa}|${periodo.legajo}`), alGuardar: recargar });
-    if (!enEscenario) { barra.addEventListener('click', abrir); return; }
+    // Los períodos de la oficial se ven en el escenario pero no se arrastran desde ahí.
+    if (!enEscenario || !barra.classList.contains('vac-g__barra--movible')) { barra.addEventListener('click', abrir); return; }
 
     let x0 = null, movido = 0;
     barra.addEventListener('pointerdown', ev => { x0 = ev.clientX; movido = 0; barra.setPointerCapture(ev.pointerId); });

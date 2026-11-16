@@ -55,6 +55,10 @@ export const vacacionesConfig = {
     { id: 'rechazado',  texto: 'Rechazado' },
     { id: 'cancelado',  texto: 'Cancelado' },
   ],
+  // Motivo con el que se guardan (como ajuste) los días no gozados de años anteriores que
+  // se suman a los que corresponden por ley. Se cargan del Excel de RRHH o a mano.
+  motivoPendientes: 'Pendientes de años anteriores',
+
   // Estados que ocupan días (cuentan para saldo y cobertura).
   estadosActivos: ['borrador', 'propuesto', 'aprobado', 'notificado', 'gozado'],
   // Estados que se consideran firmes (los demás se ven como "propuesta").

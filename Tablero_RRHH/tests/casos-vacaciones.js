@@ -39,9 +39,11 @@ export const casos = [
     nombre: 'Vacaciones: días según antigüedad (LCT art. 150) y proporcional (art. 151)',
     fn() {
       igual(diasCorresponden('2023-03-01', 2026, R).dias, 14, '3 años → 14');
-      igual(diasCorresponden('2021-06-01', 2026, R).dias, 14, '5 años justos → 14 (no excede 5)');
+      igual(diasCorresponden('2021-12-31', 2026, R).dias, 14, '5 años justos al 31/12 → 14 (no excede 5)');
+      igual(diasCorresponden('2021-06-01', 2026, R).dias, 21, '5 años y 7 meses → 21 (excede 5)');
       igual(diasCorresponden('2020-06-01', 2026, R).dias, 21, '6 años → 21');
-      igual(diasCorresponden('2006-01-10', 2026, R).dias, 28, '20 años → 28 (35 recién con más de 20)');
+      igual(diasCorresponden('2006-12-31', 2026, R).dias, 28, '20 años justos → 28');
+      igual(diasCorresponden('2006-01-10', 2026, R).dias, 35, '20 años y 11 meses → 35 (excede 20)');
       igual(diasCorresponden('2000-01-10', 2026, R).dias, 35, '26 años → 35');
       // Ingresó en octubre: no llegó a la mitad de los días hábiles → 1 cada 20 trabajados.
       const p = diasCorresponden('2026-10-01', 2026, R);

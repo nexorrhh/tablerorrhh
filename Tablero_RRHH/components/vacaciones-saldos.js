@@ -10,6 +10,7 @@ import {
   fmtFecha, fmtNum, EMP_LABEL, exportarExcel,
 } from './vacaciones-comun.js';
 import { textoAnioVacacional } from '../data/vacaciones-reglas.js';
+import { vacacionesConfig as CFG_VAC } from '../config/vacaciones.js';
 
 export async function renderizarVacacionesSaldos(contenedor) {
   let ctx = await cargarConManejo(contenedor, cargarContexto);
@@ -64,7 +65,7 @@ export async function renderizarVacacionesSaldos(contenedor) {
             <thead><tr>
               ${orden.thHtml('legajo', 'Leg.')}${orden.thHtml('nombre', 'Apellido y nombre')}${orden.thHtml('sector', 'Sector')}
               ${orden.thHtml('ingreso', 'Ingreso')}${orden.thHtml('antiguedad', 'Antig.')}
-              <th title="Según LCT art. 150/151">Cálculo LCT</th><th>Informado RRHH</th><th>Ajustes</th>
+              <th title="Según LCT art. 150/151">Cálculo LCT</th><th>Informado RRHH</th><th title="Días no gozados de años anteriores">Pendientes</th><th>Ajustes</th>
               ${orden.thHtml('corresponde', 'Corresponden')}${orden.thHtml('comprometido', 'Planificados')}${orden.thHtml('saldo', 'Saldo')}
               <th title="Días con código VACACION en Tango durante el año vacacional (días hábiles, no corridos)">Tango (hábiles)</th>
               <th></th>
@@ -78,8 +79,9 @@ export async function renderizarVacacionesSaldos(contenedor) {
                 <td>${s.antiguedad ?? '—'}</td>
                 <td title="${e(s.detalleCalculo || '')}">${fmtNum(s.calculado)}</td>
                 <td class="${s.difiere ? 'vac__difiere' : ''}" title="${s.difiere ? 'Distinto al cálculo LCT: revisar' : ''}">${fmtNum(s.rrhh)}</td>
+                <td>${s.pendientes ? '+' + s.pendientes : '—'}</td>
                 <td>${s.ajustes ? (s.ajustes > 0 ? '+' : '') + s.ajustes : '—'}</td>
-                <td><strong>${fmtNum(s.corresponde)}</strong><div class="vac__nota">${s.origen === 'rrhh' ? 'RRHH' : 'calculado'}</div></td>
+                <td><strong>${fmtNum(s.corresponde)}</strong><div class="vac__nota">${({ ley: 'ley', rrhh: 'RRHH', 'sin-dato': 'sin ingreso' })[s.origen]}${s.pendientes ? ' + pend.' : ''}</div></td>
                 <td>${s.comprometido}${planificados ? `<div class="vac__nota">${planificados} período${planificados === 1 ? '' : 's'}</div>` : ''}</td>
                 <td class="${s.saldo < 0 ? 'vac__neg' : s.saldo > 0 ? '' : 'vac__pos'}"><strong>${fmtNum(s.saldo)}</strong></td>
                 <td>${s.tangoDiasHabiles || '—'}</td>
@@ -90,7 +92,7 @@ export async function renderizarVacacionesSaldos(contenedor) {
               </tr>`).join('')}</tbody>
           </table>
         </div>
-        <p class="vac__nota">"Corresponden" usa el dato informado por RRHH si existe; si no, el cálculo por LCT (antigüedad al 31/12). Los ajustes autorizados se suman aparte y quedan registrados. Planificados = días corridos en períodos no cancelados del plan elegido.</p>
+        <p class="vac__nota">"Corresponden" = días por ley (LCT, antigüedad al 31/12) + pendientes de años anteriores + ajustes autorizados. "Informado RRHH" son los días del año que informó RRHH: si no coincide con la ley se marca para revisar (y se usa solo cuando falta la fecha de ingreso). Planificados = días corridos en períodos no cancelados del plan elegido.</p>
       </div>`;
 
     enlazarBarraFiltros(contenedor, () => pintar());
@@ -104,9 +106,9 @@ export async function renderizarVacacionesSaldos(contenedor) {
     }]));
     contenedor.querySelector('#vac-s-excel').addEventListener('click', () => exportarExcel(`Saldos_vacaciones_${textoAnioVacacional(est.anio).replace('/', '-')}.xlsx`, [{
       nombre: 'Saldos',
-      filas: [['Legajo', 'Empresa', 'Apellido y nombre', 'Sector', 'Ingreso', 'Antigüedad', 'Cálculo LCT', 'Informado RRHH', 'Ajustes', 'Corresponden', 'Planificados', 'Saldo', 'Tango (días hábiles)'],
+      filas: [['Legajo', 'Empresa', 'Apellido y nombre', 'Sector', 'Ingreso', 'Antigüedad', 'Cálculo LCT', 'Informado RRHH', 'Pendientes años anteriores', 'Ajustes', 'Corresponden', 'Planificados', 'Saldo', 'Tango (días hábiles)'],
         ...filas.map(({ emp, s, sector }) => [emp.legajo, EMP_LABEL[emp.empresa] || emp.empresa, emp.nombre, sector, fmtFecha(emp.fecha_ingreso), s.antiguedad ?? '',
-          s.calculado ?? '', s.rrhh ?? '', s.ajustes || '', s.corresponde ?? '', s.comprometido, s.saldo ?? '', s.tangoDiasHabiles || ''])],
+          s.calculado ?? '', s.rrhh ?? '', s.pendientes || '', s.ajustes || '', s.corresponde ?? '', s.comprometido, s.saldo ?? '', s.tangoDiasHabiles || ''])],
     }]));
   }
 
@@ -196,7 +198,9 @@ export async function renderizarVacacionesSaldos(contenedor) {
         <label class="venc__label" for="vac-aj-dias">Días a sumar (negativo para restar)</label>
         <input class="venc__input" type="number" id="vac-aj-dias" step="1">
         <label class="venc__label" for="vac-aj-motivo">Motivo</label>
-        <input class="venc__input" id="vac-aj-motivo" placeholder="Ej. días pendientes del año anterior, acuerdo, licencia">
+        <input class="venc__input" id="vac-aj-motivo" list="vac-aj-motivos" placeholder="Ej. ${e(CFG_VAC.motivoPendientes)}, acuerdo, licencia">
+        <datalist id="vac-aj-motivos"><option value="${e(CFG_VAC.motivoPendientes)}"></datalist>
+        <div class="vac__nota">Con el motivo "${e(CFG_VAC.motivoPendientes)}" los días se muestran como pendientes de años anteriores.</div>
         <label class="venc__label" for="vac-aj-aut">Autorizado por</label>
         <input class="venc__input" id="vac-aj-aut">
         <div id="vac-aj-msg"></div>

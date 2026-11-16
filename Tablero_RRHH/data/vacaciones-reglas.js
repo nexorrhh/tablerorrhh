@@ -76,8 +76,12 @@ export function diasCorresponden(fechaIngreso, anio, reglas, feriados = new Set(
   const finAnio = `${anio}-12-31`;
   if (ingreso > finAnio) return { dias: 0, detalle: 'Ingresó después de fin de año' };
   const ant = antiguedadAnios(ingreso, anio);
-  // LCT art. 150: "no exceda de 5 años" → 5 justos todavía es el primer tramo (inclusive).
-  const tramo = reglas.escalaAntiguedad.find(t => t.hastaAnios == null || ant <= t.hastaAnios)
+  // LCT art. 150: "no exceda de 5 años". Se mide al 31/12: 5 años justos (ingreso un 31/12)
+  // no excede, pero 5 años y unos meses sí. `ant` son años enteros, así que se excede el
+  // tramo si ant es mayor, o si es igual y el ingreso no fue un 31/12. Coincide con lo que
+  // informa RRHH (ej. ingreso 09/2021 → 21 días en 2026; ingreso 2006 → 35).
+  const excede = n => ant > n || (ant === n && ingreso.slice(5) !== '12-31');
+  const tramo = reglas.escalaAntiguedad.find(t => t.hastaAnios == null || !excede(t.hastaAnios))
              ?? reglas.escalaAntiguedad[reglas.escalaAntiguedad.length - 1];
 
   // Si ingresó durante el año: ¿trabajó al menos la mitad de los días hábiles?

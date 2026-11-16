@@ -6,7 +6,7 @@ import { escaparHtml as e, htmlError } from './util.js';
 import { cerrarConAnimacion } from './modal-animado.js';
 import {
   ModuloNoInstalado, periodosDelPlan, esActivo, saldoPersona, requeridosDe, guardarPeriodo, borrarPeriodo, cruceTangoDe,
-  usuarioActual, leerAuditoria,
+  usuarioActual, leerAuditoria, ESTADOS_OFICIAL,
 } from '../data/vacaciones-datos.js';
 import {
   diasCorridos, reincorporacion, sumarDias, anioVacacionalDe, validarPeriodo, hayBloqueantes, rangoDias,
@@ -18,6 +18,23 @@ import { TEXTO_CRUCE } from '../data/vacaciones-tango.js';
 const CFG = vacacionesConfig;
 export const ESTADO_TEXTO = Object.fromEntries(CFG.estados.map(s => [s.id, s.texto]));
 export const EMP_LABEL = { CIMOMET: 'Cimomet', COMOING: 'Co.mo.ing' };
+
+// "por ley 14 (2 años de antigüedad al 31/12) + 7 pendientes de años anteriores" — de dónde sale el total.
+export function textoDesgloseSaldo(s) {
+  const partes = [s.origen === 'ley' ? `por ley ${s.base} (${s.detalleCalculo})` : s.origen === 'rrhh' ? `informado por RRHH ${s.base}` : 'sin fecha de ingreso'];
+  if (s.pendientes) partes.push(`${s.pendientes} pendientes de años anteriores`);
+  if (s.ajustes) partes.push(`ajustes ${s.ajustes > 0 ? '+' : ''}${s.ajustes}`);
+  return partes.join(' + ');
+}
+
+// Cuánto le falta planificar: { clase, texto } para el indicador junto a cada persona.
+export function estadoSaldo(s) {
+  if (s.corresponde == null) return { clase: 'sin', texto: `${s.comprometido} planif.` };
+  const falta = s.corresponde - s.comprometido;
+  if (falta > 0) return { clase: 'falta', texto: `${s.comprometido}/${s.corresponde} · faltan ${falta}` };
+  if (falta < 0) return { clase: 'exceso', texto: `${s.comprometido}/${s.corresponde} · ${-falta} de más` };
+  return { clase: 'ok', texto: `${s.comprometido}/${s.corresponde} ✓` };
+}
 
 // ── Estado compartido entre solapas (dura la sesión del navegador) ───────────
 const CLAVE_ESTADO = 'vac_estado';
@@ -165,7 +182,8 @@ export function abrirModalPeriodo({ ctx, emp = null, periodo = null, escenarioId
     id: periodo?.id ?? null, legajo: periodo?.legajo ?? emp?.legajo ?? null, empresa: periodo?.empresa ?? emp?.empresa ?? null,
     escenario_id: periodo ? periodo.escenario_id : escenarioId, desde: ini,
     hasta: periodo?.hasta || sumarDias(ini, CFG.duracionSugeridaDias - 1),
-    estado: periodo?.estado || 'propuesto', notificado_en: periodo?.notificado_en || '', constancia: periodo?.constancia || '',
+    // En la oficial solo hay vacaciones aprobadas: un período nuevo ahí nace aprobado.
+    estado: periodo?.estado || (escenarioId == null && !periodo ? 'aprobado' : 'propuesto'), notificado_en: periodo?.notificado_en || '', constancia: periodo?.constancia || '',
     observaciones: periodo?.observaciones || '', aprobado_por: periodo?.aprobado_por ?? null, aprobado_en: periodo?.aprobado_en ?? null,
   };
   const enEscenario = p.escenario_id != null;
@@ -194,11 +212,12 @@ export function abrirModalPeriodo({ ctx, emp = null, periodo = null, escenarioId
       <div class="vac__fila2">
         <div><label class="venc__label" for="vac-mp-estado">Estado</label>
           <select class="venc__input" id="vac-mp-estado">
-            ${CFG.estados.filter(s => s.id !== 'gozado' || p.estado === 'gozado').map(s => `<option value="${s.id}" ${p.estado === s.id ? 'selected' : ''}>${s.texto}</option>`).join('')}
+            ${CFG.estados.filter(s => (s.id !== 'gozado' || p.estado === 'gozado') && (enEscenario || ESTADOS_OFICIAL.includes(s.id))).map(s => `<option value="${s.id}" ${p.estado === s.id ? 'selected' : ''}>${s.texto}</option>`).join('')}
           </select></div>
         <div><label class="venc__label" for="vac-mp-notif">Notificado el</label><input class="venc__input" type="date" id="vac-mp-notif" value="${p.notificado_en || ''}"></div>
         <div><label class="venc__label" for="vac-mp-const">Constancia</label><input class="venc__input" id="vac-mp-const" placeholder="Ej. nota firmada, mail" value="${e(p.constancia)}"></div>
       </div>
+      <p class="vac__nota">${enEscenario ? 'Al marcarlo como <strong>Aprobado</strong> pasa a la planificación oficial (y se sigue viendo en los escenarios).' : 'La planificación oficial solo tiene vacaciones aprobadas: los borradores y propuestas se arman en un escenario.'}</p>
       <label class="venc__label" for="vac-mp-obs">Observaciones</label>
       <textarea class="venc__input" id="vac-mp-obs" rows="2">${e(p.observaciones)}</textarea>
       <div class="vac__saldo" id="vac-mp-saldo"></div>
@@ -263,7 +282,7 @@ export function abrirModalPeriodo({ ctx, emp = null, periodo = null, escenarioId
         + (cruce.faltan?.length && cruce.faltan.length <= 8 ? ` · faltan: ${cruce.faltan.map(fmtFechaCorta).join(', ')}` : '');
     }
     zonaSal.innerHTML = `Año ${textoAnioVacacional(anio)}: corresponden <strong>${fmtNum(s.corresponde)}</strong>
-      (${s.origen === 'rrhh' ? 'informado por RRHH' : 'calculado: ' + e(s.detalleCalculo)}${s.ajustes ? `, ajustes ${s.ajustes > 0 ? '+' : ''}${s.ajustes}` : ''})
+      (${e(textoDesgloseSaldo(s))})
       · comprometidos en otros períodos <strong>${s.comprometido}</strong>
       · disponibles <strong>${s.corresponde == null ? '—' : s.corresponde - s.comprometido}</strong>`;
 

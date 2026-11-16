@@ -199,6 +199,7 @@ end $$;
 -- ── Aprobar un escenario: reemplaza la planificación oficial de sus personas ──
 -- En una sola transacción: los períodos oficiales (no gozados) de las personas del
 -- escenario se cancelan y se copian los del escenario como "aprobado".
+-- Ver sql/vacaciones_oficial_aprobada.sql (la oficial solo tiene lo aprobado).
 create or replace function public.vac_aprobar_escenario(p_escenario_id bigint, p_usuario text)
 returns jsonb
 language plpgsql
@@ -218,17 +219,22 @@ begin
          observaciones = coalesce(o.observaciones || ' · ', '') || 'Reemplazado por escenario ' || p_escenario_id
    where o.escenario_id is null
      and o.anio_vacacional = v_anio
-     and o.estado in ('borrador', 'propuesto', 'aprobado')
+     and o.estado in ('borrador', 'propuesto')
      and exists (select 1 from public.vac_periodos e
                   where e.escenario_id = p_escenario_id and e.legajo = o.legajo and e.empresa = o.empresa);
   get diagnostics v_cancelados = row_count;
 
   insert into public.vac_periodos (legajo, empresa, anio_vacacional, escenario_id, desde, hasta, estado,
                                    observaciones, alertas_aceptadas, aprobado_por, aprobado_en, modificado_por)
-  select legajo, empresa, anio_vacacional, null, desde, hasta, 'aprobado',
-         observaciones, alertas_aceptadas, p_usuario, now(), p_usuario
-    from public.vac_periodos
-   where escenario_id = p_escenario_id and estado not in ('cancelado', 'rechazado');
+  select e.legajo, e.empresa, e.anio_vacacional, null, e.desde, e.hasta, 'aprobado',
+         e.observaciones, e.alertas_aceptadas, p_usuario, now(), p_usuario
+    from public.vac_periodos e
+   where e.escenario_id = p_escenario_id
+     and e.estado not in ('cancelado', 'rechazado')
+     and not exists (select 1 from public.vac_periodos o
+                      where o.escenario_id is null and o.legajo = e.legajo and o.empresa = e.empresa
+                        and o.desde = e.desde and o.hasta = e.hasta
+                        and o.estado in ('aprobado', 'notificado', 'gozado'));
   get diagnostics v_copiados = row_count;
 
   update public.vac_escenarios set estado = 'aprobado', modificado_por = p_usuario where id = p_escenario_id;
